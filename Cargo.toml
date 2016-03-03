@@ -1,0 +1,11 @@
+[package]
+name = "ripstest"
+version = "0.1.0"
+authors = ["Linus Färnstrand <faern@faern.net>"]
+
+[dependencies.rips]
+path = "../librips"
+
+[dependencies.pnet]
+git = "https://github.com/faern/libpnet"
+branch = "hashable_types"
