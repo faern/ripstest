@@ -2,7 +2,7 @@
 name = "ripstest"
 version = "0.1.0"
 dependencies = [
- "pnet 0.7.4 (git+https://github.com/faern/libpnet?branch=hashable_types)",
+ "pnet 0.7.4 (git+https://github.com/libpnet/libpnet)",
  "rips 0.0.0",
 ]
 
@@ -57,18 +57,28 @@ dependencies = [
 [[package]]
 name = "pnet"
 version = "0.7.4"
-source = "git+https://github.com/faern/libpnet?branch=hashable_types#e56ef3112b56058b06424a9774bd23ec96d45260"
+source = "git+https://github.com/libpnet/libpnet#068b0e29ebd853ec50f11640dbc613ee567d60ab"
 dependencies = [
  "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "pnet_macros 0.7.4 (git+https://github.com/faern/libpnet?branch=hashable_types)",
- "pnet_macros_support 0.1.1 (git+https://github.com/faern/libpnet?branch=hashable_types)",
+ "pnet_macros 0.7.4 (git+https://github.com/libpnet/libpnet)",
+ "pnet_macros_support 0.1.1 (git+https://github.com/libpnet/libpnet)",
  "syntex 0.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "pnet_macros"
 version = "0.7.4"
-source = "git+https://github.com/faern/libpnet?branch=hashable_types#e56ef3112b56058b06424a9774bd23ec96d45260"
+source = "git+https://github.com/libpnet/libpnet#068b0e29ebd853ec50f11640dbc613ee567d60ab"
+dependencies = [
+ "regex 0.1.55 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syntex 0.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syntex_syntax 0.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "pnet_macros"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "regex 0.1.55 (registry+https://github.com/rust-lang/crates.io-index)",
  "syntex 0.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -78,7 +88,24 @@ dependencies = [
 [[package]]
 name = "pnet_macros_support"
 version = "0.1.1"
-source = "git+https://github.com/faern/libpnet?branch=hashable_types#e56ef3112b56058b06424a9774bd23ec96d45260"
+source = "git+https://github.com/libpnet/libpnet#068b0e29ebd853ec50f11640dbc613ee567d60ab"
+
+[[package]]
+name = "pnet_macros_support"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "pnet_packets"
+version = "0.1.0"
+source = "git+https://github.com/faern/pnet_packets#ca54249498f848b8359f991c1e917286346ab075"
+dependencies = [
+ "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pnet 0.7.4 (git+https://github.com/libpnet/libpnet)",
+ "pnet_macros 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pnet_macros_support 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syntex 0.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "regex"
@@ -100,7 +127,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "rips"
 version = "0.0.0"
 dependencies = [
- "pnet 0.7.4 (git+https://github.com/faern/libpnet?branch=hashable_types)",
+ "pnet 0.7.4 (git+https://github.com/libpnet/libpnet)",
+ "pnet_packets 0.1.0 (git+https://github.com/faern/pnet_packets)",
 ]
 
 [[package]]

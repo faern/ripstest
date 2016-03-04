@@ -7,5 +7,4 @@ authors = ["Linus Färnstrand <faern@faern.net>"]
 path = "../librips"
 
 [dependencies.pnet]
-git = "https://github.com/faern/libpnet"
-branch = "hashable_types"
+git = "https://github.com/libpnet/libpnet"
