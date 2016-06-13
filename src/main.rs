@@ -58,6 +58,11 @@ fn main() {
                           .help("Gateway IPv4. Defaults to the first IP in the network denoted \
                                  by source_ip and mask.")
                           .takes_value(true);
+    let payload_arg = Arg::with_name("payload")
+                          .long("payload")
+                          .help("A file containing the payload. Without this a packet without a \
+                                 payload will be sent.")
+                          .takes_value(true);
 
     let app = App::new("RIPS testsuite")
                   .version("1.0")
@@ -69,9 +74,7 @@ fn main() {
                            .help("Sets the level of verbosity"))
                   .subcommand(SubCommand::with_name("eth")
                                   .version("1.0")
-                                  .about("Sends raw ethernet frames to a given MAC \
-                                          address.\nThe payload will be two bytes that \
-                                          increment for each packet.")
+                                  .about("Sends raw ethernet frames to a given MAC address.")
                                   .arg(iface_arg.clone().required(true))
                                   .arg(smac_arg.clone())
                                   .arg(dmac_arg.required(true))
@@ -80,7 +83,8 @@ fn main() {
                                            .long("pkgs")
                                            .help("Amount of packets to send")
                                            .default_value("1")
-                                           .takes_value(true)))
+                                           .takes_value(true))
+                                  .arg(payload_arg.clone()))
                   .subcommand(SubCommand::with_name("arp")
                                   .version("1.0")
                                   .about("Send an Arp query to the network and wait for the \
@@ -104,11 +108,7 @@ fn main() {
                                            .long("ip")
                                            .help("Destination IP. Defaults to the gateway IP.")
                                            .takes_value(true))
-                                  .arg(Arg::with_name("payload")
-                                           .long("payload")
-                                           .help("A file containing the payload. Without this \
-                                                  a packet without a payload will be sent.")
-                                           .takes_value(true)));
+                                  .arg(payload_arg.clone()));
 
     let matches = app.clone().get_matches();
 
@@ -126,10 +126,15 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
     let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
     let dmac = get_mac(cmd_matches.value_of("dmac"), app.clone()).unwrap();
     let pkgs = get_int(cmd_matches.value_of("pkgs"), app.clone());
-    println!("Sending {} raw Ethernet packets from {} to {}",
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+    println!("Sending {} raw Ethernet packets from {} to {} with {} bytes payload",
              pkgs,
              smac,
-             dmac);
+             dmac,
+             payload.len());
     let mut stack = NetworkStackBuilder::new()
                         .set_interfaces(vec![iface.clone()])
                         .create()
@@ -138,13 +143,11 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
     let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
     {
         let mut eth = eth.lock().expect("Unable to lock Ethernet");
-        let mut i = 1;
-        eth.send(pkgs, 2, |pkg| {
+        eth.send(pkgs, payload.len(), |pkg| {
             pkg.set_source(smac);
             pkg.set_destination(dmac);
             pkg.set_ethertype(EtherType::new(0x1337));
-            pkg.set_payload(&[i, i + 1]);
-            i += 1
+            pkg.set_payload(&payload);
         });
     }
 }
