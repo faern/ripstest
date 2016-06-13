@@ -51,10 +51,14 @@ fn main() {
                      })
                      .next()
                      .expect("No IPv4 addr to use");
-    let dst_ip = Ipv4Addr::new(10, 0, 0, 1);
+
+    // Figure out the GW addr in an ugly way. Not guaranteed to be correct
+    let dst_ip = Ipv4Addr::new(my_ip.octets()[0], my_ip.octets()[1], my_ip.octets()[2], 1);
+
     let arp = stack.get_arp(&iface).expect("Expected arp");
     {
         let mut arp = arp.lock().unwrap();
+        println!("Asking for MAC for {}", dst_ip);
         let mac = arp.get(&dst_ip);
         println!("MAC {} belongs to {}", mac, dst_ip);
         let mac2 = arp.get(&dst_ip);
@@ -64,7 +68,7 @@ fn main() {
     let ipv4_conf = ipv4::Ipv4Conf::new(my_ip, 24, Ipv4Addr::new(10, 0, 0, 1)).unwrap();
     let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
     {
-        let mut ipv4 = ipv4_iface.lock().unwrap();
+        let ipv4 = ipv4_iface.lock().unwrap();
         ipv4.send(dst_ip, 10, |pkg| {
             pkg.set_payload(&[0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19]);
         });
