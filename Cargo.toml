@@ -3,8 +3,11 @@ name = "ripstest"
 version = "0.1.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 
+[dependencies]
+pnet = "0.10.0"
+
 [dependencies.rips]
 path = "../librips"
 
-[dependencies.pnet]
-git = "https://github.com/libpnet/libpnet"
+#[dependencies.pnet]
+#git = "https://github.com/libpnet/libpnet"
