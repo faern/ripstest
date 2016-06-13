@@ -1,12 +1,14 @@
 extern crate clap;
 extern crate rips;
 extern crate pnet;
+extern crate ipnetwork;
 
 use std::thread;
 use std::process;
 use std::time::Duration;
 use std::net::{Ipv4Addr, IpAddr};
-
+use std::fs::File;
+use std::io::{self, Read};
 use std::str::FromStr;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
@@ -14,8 +16,10 @@ use clap::{Arg, App, SubCommand, ArgMatches};
 use pnet::util::{self, MacAddr, NetworkInterface};
 use pnet::packet::ethernet::EtherType;
 
+use ipnetwork::Ipv4Network;
+
 use rips::NetworkStackBuilder;
-// use rips::ipv4;
+use rips::ipv4;
 
 macro_rules! eprintln {
     ($($arg:tt)*) => (
@@ -41,6 +45,21 @@ fn main() {
                        .long("dmac")
                        .help("Destination MAC address")
                        .takes_value(true);
+    let source_ip_arg = Arg::with_name("source_ip")
+                            .short("s")
+                            .long("source_ip")
+                            .help("Local IPv4 Address. Defaults to the first IPv4 address on the \
+                                   given interface.")
+                            .takes_value(true);
+    let netmask_arg = Arg::with_name("netmask")
+                          .long("mask")
+                          .help("Local netmask.")
+                          .default_value("24");
+    let gateway_arg = Arg::with_name("gateway")
+                          .long("gw")
+                          .help("Gateway IPv4. Defaults to the first IP in the network denoted \
+                                 by source_ip and mask.")
+                          .takes_value(true);
 
     let app = App::new("RIPS testsuite")
                   .version("1.0")
@@ -68,25 +87,38 @@ fn main() {
                                   .version("1.0")
                                   .about("Send an Arp query to the network and wait for the \
                                           response")
-                                  .arg(iface_arg.required(true))
+                                  .arg(iface_arg.clone().required(true))
                                   .arg(Arg::with_name("ip")
                                            .long("ip")
                                            .help("IPv4 address to query for")
                                            .takes_value(true)
                                            .required(true))
-                                  .arg(Arg::with_name("source_ip")
-                                           .long("source_ip")
-                                           .help("Ipv4 address to use as Arp sender. Defauts \
-                                                  to first IPv4 address on given interface.")
+                                  .arg(source_ip_arg.clone()))
+                  .subcommand(SubCommand::with_name("ipv4")
+                                  .version("1.0")
+                                  .about("Send an IPv4 packet with a given payload to the \
+                                          network.")
+                                  .arg(iface_arg.clone().required(true))
+                                  .arg(source_ip_arg.clone())
+                                  .arg(netmask_arg.clone())
+                                  .arg(gateway_arg.clone())
+                                  .arg(Arg::with_name("ip")
+                                           .long("ip")
+                                           .help("Destination IP. Defaults to the gateway IP.")
+                                           .takes_value(true))
+                                  .arg(Arg::with_name("payload")
+                                           .long("payload")
+                                           .help("A file containing the payload. Without this \
+                                                  a packet without a payload will be sent.")
                                            .takes_value(true)));
 
     let matches = app.clone().get_matches();
 
-    if let Some(eth_matches) = matches.subcommand_matches("eth") {
-        let iface = get_iface(eth_matches, app.clone());
-        let smac = get_smac(eth_matches.value_of("smac"), &iface, app.clone());
-        let dmac = get_mac(eth_matches.value_of("dmac"), app.clone()).unwrap();
-        let pkgs = get_int(eth_matches.value_of("pkgs"), app.clone());
+    if let Some(cmd_matches) = matches.subcommand_matches("eth") {
+        let iface = get_iface(cmd_matches, app.clone());
+        let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
+        let dmac = get_mac(cmd_matches.value_of("dmac"), app.clone()).unwrap();
+        let pkgs = get_int(cmd_matches.value_of("pkgs"), app.clone());
         println!("Sending {} raw Ethernet packets from {} to {}",
                  pkgs,
                  smac,
@@ -108,11 +140,10 @@ fn main() {
                 i += 1
             });
         }
-    } else if let Some(arp_matches) = matches.subcommand_matches("arp") {
-        let iface = get_iface(arp_matches, app.clone());
-        let source_ip = get_source_ipv4(arp_matches.value_of("source_ip"), &iface, app.clone());
-        let dest_ip = get_ipv4(arp_matches.value_of("ip"), app.clone())
-                          .expect("No destination IP given");
+    } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
+        let iface = get_iface(cmd_matches, app.clone());
+        let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+        let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
         println!("Sending Arp request for {}", dest_ip);
         let mut stack = NetworkStackBuilder::new()
                             .set_interfaces(vec![iface.clone()])
@@ -125,16 +156,44 @@ fn main() {
             let mac = arp.get(&source_ip, &dest_ip);
             println!("{} has MAC {}", dest_ip, mac);
         }
-    }
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
+        let iface = get_iface(cmd_matches, app.clone());
+        let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+        let netmask = {
+            let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+            if mask < 1 || mask >= 32 {
+                print_error("netmask must be in interval 1 - 31", app.clone());
+            }
+            mask as u8
+        };
+        let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+                          .unwrap_or(default_gw(source_ip, netmask));
+        let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+        let payload = match get_payload(cmd_matches.value_of("payload")) {
+            Ok(payload) => payload,
+            Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+        };
 
-    // let ipv4_conf = ipv4::Ipv4Conf::new(my_ip, 24, Ipv4Addr::new(10, 0, 0, 1)).unwrap();
-    // let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
-    // {
-    //     let ipv4 = ipv4_iface.lock().unwrap();
-    //     ipv4.send(dst_ip, 10, |pkg| {
-    //         pkg.set_payload(&[0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19]);
-    //     });
-    // }
+        println!("Sending IPv4 packet from:");
+        println!("\tIP: {}/{}", source_ip, netmask);
+        println!("\tgw: {}", gateway);
+        println!("To {}", dest_ip);
+        println!("With {} bytes payload", payload.len());
+
+        let mut stack = NetworkStackBuilder::new()
+                            .set_interfaces(vec![iface.clone()])
+                            .create()
+                            .expect("Expected a working NetworkStack");
+
+        let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
+        let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
+        {
+            let ipv4 = ipv4_iface.lock().unwrap();
+            ipv4.send(dest_ip, payload.len() as u16, |pkg| {
+                pkg.set_payload(&payload[..]);
+            });
+        }
+    }
 
     thread::sleep(Duration::new(1, 0));
 }
@@ -229,4 +288,26 @@ fn get_ipv4(opt_ip: Option<&str>, app: App) -> Option<Ipv4Addr> {
         }
         None => None,
     }
+}
+
+fn get_payload(opt_path: Option<&str>) -> io::Result<Vec<u8>> {
+    match opt_path {
+        Some(path) => {
+            let mut f = try!(File::open(path));
+            let mut buffer = vec![];
+            let size = try!(f.read_to_end(&mut buffer));
+            if size > u16::max_value() as usize {
+                Err(io::Error::new(io::ErrorKind::Other, "Too large payload"))
+            } else {
+                Ok(buffer)
+            }
+        }
+        None => Ok(vec![]),
+    }
+}
+
+fn default_gw(ip: Ipv4Addr, prefix: u8) -> Ipv4Addr {
+    let ip_net = Ipv4Network::new(ip, prefix);
+    let (_, net_int) = ip_net.network();
+    Ipv4Addr::from(net_int + 1)
 }

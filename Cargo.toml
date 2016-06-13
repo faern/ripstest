@@ -6,6 +6,7 @@ authors = ["Linus Färnstrand <faern@faern.net>"]
 [dependencies]
 pnet = "0.10.0"
 clap = "2.5"
+ipnetwork = "*"
 
 [dependencies.rips]
 path = "../librips"
