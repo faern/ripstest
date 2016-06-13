@@ -5,7 +5,7 @@ extern crate pnet;
 use std::thread;
 use std::process;
 use std::time::Duration;
-// use std::net::{Ipv4Addr, IpAddr};
+use std::net::{Ipv4Addr, IpAddr};
 
 use std::str::FromStr;
 
@@ -55,15 +55,31 @@ fn main() {
                                   .about("Sends raw ethernet frames to a given MAC \
                                           address.\nThe payload will be two bytes that \
                                           increment for each packet.")
-                                  .arg(iface_arg.required(true))
-                                  .arg(smac_arg)
+                                  .arg(iface_arg.clone().required(true))
+                                  .arg(smac_arg.clone())
                                   .arg(dmac_arg.required(true))
                                   .arg(Arg::with_name("pkgs")
                                            .short("n")
                                            .long("pkgs")
                                            .help("Amount of packets to send")
                                            .default_value("1")
+                                           .takes_value(true)))
+                  .subcommand(SubCommand::with_name("arp")
+                                  .version("1.0")
+                                  .about("Send an Arp query to the network and wait for the \
+                                          response")
+                                  .arg(iface_arg.required(true))
+                                  .arg(Arg::with_name("ip")
+                                           .long("ip")
+                                           .help("IPv4 address to query for")
+                                           .takes_value(true)
+                                           .required(true))
+                                  .arg(Arg::with_name("source_ip")
+                                           .long("source_ip")
+                                           .help("Ipv4 address to use as Arp sender. Defauts \
+                                                  to first IPv4 address on given interface.")
                                            .takes_value(true)));
+
     let matches = app.clone().get_matches();
 
     if let Some(eth_matches) = matches.subcommand_matches("eth") {
@@ -82,7 +98,7 @@ fn main() {
 
         let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
         {
-            let mut eth = eth.lock().unwrap();
+            let mut eth = eth.lock().expect("Unable to lock Ethernet");
             let mut i = 1;
             eth.send(pkgs, 2, |pkg| {
                 pkg.set_source(smac);
@@ -92,35 +108,25 @@ fn main() {
                 i += 1
             });
         }
+    } else if let Some(arp_matches) = matches.subcommand_matches("arp") {
+        let iface = get_iface(arp_matches, app.clone());
+        let source_ip = get_source_ipv4(arp_matches.value_of("source_ip"), &iface, app.clone());
+        let dest_ip = get_ipv4(arp_matches.value_of("ip"), app.clone())
+                          .expect("No destination IP given");
+        println!("Sending Arp request for {}", dest_ip);
+        let mut stack = NetworkStackBuilder::new()
+                            .set_interfaces(vec![iface.clone()])
+                            .create()
+                            .expect("Expected a working NetworkStack");
+
+        let arp = stack.get_arp(&iface).expect("Expected arp");
+        {
+            let mut arp = arp.lock().expect("Unable to lock Arp");
+            let mac = arp.get(&source_ip, &dest_ip);
+            println!("{} has MAC {}", dest_ip, mac);
+        }
     }
 
-
-    // let my_ip = iface.ips
-    //                  .as_ref()
-    //                  .unwrap()
-    //                  .iter()
-    //                  .filter_map(|&i| {
-    //                      match i {
-    //                          IpAddr::V4(ip) => Some(ip),
-    //                          _ => None,
-    //                      }
-    //                  })
-    //                  .next()
-    //                  .expect("No IPv4 addr to use");
-    //
-    // // Figure out the GW addr in an ugly way. Not guaranteed to be correct
-    // let dst_ip = Ipv4Addr::new(my_ip.octets()[0], my_ip.octets()[1], my_ip.octets()[2], 1);
-    //
-    // let arp = stack.get_arp(&iface).expect("Expected arp");
-    // {
-    //     let mut arp = arp.lock().unwrap();
-    //     println!("Asking for MAC for {}", dst_ip);
-    //     let mac = arp.get(&dst_ip);
-    //     println!("MAC {} belongs to {}", mac, dst_ip);
-    //     let mac2 = arp.get(&dst_ip);
-    //     println!("Second time MAC {} belongs to {}", mac2, dst_ip);
-    // }
-    //
     // let ipv4_conf = ipv4::Ipv4Conf::new(my_ip, 24, Ipv4Addr::new(10, 0, 0, 1)).unwrap();
     // let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
     // {
@@ -141,7 +147,7 @@ fn print_error(error: &str, app: App) -> ! {
 }
 
 fn get_iface(matches: &ArgMatches, app: App) -> NetworkInterface {
-    let iface_name = matches.value_of("iface").unwrap();
+    let iface_name = matches.value_of("iface").expect("No iface given");
     let ifaces = util::get_network_interfaces();
     let mut iface = None;
     for curr_iface in ifaces.into_iter() {
@@ -188,5 +194,39 @@ fn get_int(i: Option<&str>, app: App) -> usize {
             }
         }
         None => print_error("No integer given", app),
+    }
+}
+
+fn get_source_ipv4(opt_ip: Option<&str>, iface: &NetworkInterface, app: App) -> Ipv4Addr {
+    if let Some(ip) = get_ipv4(opt_ip, app.clone()) {
+        return ip;
+    }
+    match match iface.ips.as_ref() {
+        Some(ips) => {
+            ips.iter()
+               .filter_map(|&i| {
+                   match i {
+                       IpAddr::V4(ip) => Some(ip),
+                       _ => None,
+                   }
+               })
+               .next()
+        }
+        None => None,
+    } {
+        Some(ip) => ip,
+        None => print_error("No IPv4 to use on given interface", app),
+    }
+}
+
+fn get_ipv4(opt_ip: Option<&str>, app: App) -> Option<Ipv4Addr> {
+    match opt_ip {
+        Some(ip_str) => {
+            match Ipv4Addr::from_str(ip_str) {
+                Ok(ip) => Some(ip),
+                Err(_) => print_error(&format!("Invalid IPv4 format: {}", ip_str)[..], app),
+            }
+        }
+        None => None,
     }
 }
