@@ -1,78 +1,192 @@
+extern crate clap;
 extern crate rips;
 extern crate pnet;
 
 use std::thread;
+use std::process;
 use std::time::Duration;
-use std::net::{Ipv4Addr, IpAddr};
+// use std::net::{Ipv4Addr, IpAddr};
 
-use pnet::util::{self, MacAddr};
+use std::str::FromStr;
+
+use clap::{Arg, App, SubCommand, ArgMatches};
+
+use pnet::util::{self, MacAddr, NetworkInterface};
 use pnet::packet::ethernet::EtherType;
 
 use rips::NetworkStackBuilder;
-use rips::ipv4;
+// use rips::ipv4;
+
+macro_rules! eprintln {
+    ($($arg:tt)*) => (
+        use std::io::Write;
+        match writeln!(&mut ::std::io::stderr(), $($arg)* ) {
+            Ok(_) => {},
+            Err(x) => panic!("Unable to write to stderr: {}", x),
+        }
+    )
+}
 
 fn main() {
-    println!("Hello, world!");
+    let iface_arg = Arg::with_name("iface")
+                        .short("i")
+                        .long("iface")
+                        .help("Ethernet interface to use")
+                        .takes_value(true);
+    let smac_arg = Arg::with_name("smac")
+                       .long("smac")
+                       .help("Source MAC address. Defaults to MAC on <iface>")
+                       .takes_value(true);
+    let dmac_arg = Arg::with_name("dmac")
+                       .long("dmac")
+                       .help("Destination MAC address")
+                       .takes_value(true);
+
+    let app = App::new("RIPS testsuite")
+                  .version("1.0")
+                  .author("Linus Färnstrand <faern@faern.net>")
+                  .about("Tests out the RIPS TCP/IP stack in the real world")
+                  .arg(Arg::with_name("v")
+                           .short("v")
+                           .multiple(true)
+                           .help("Sets the level of verbosity"))
+                  .subcommand(SubCommand::with_name("eth")
+                                  .version("1.0")
+                                  .about("Sends raw ethernet frames to a given MAC \
+                                          address.\nThe payload will be two bytes that \
+                                          increment for each packet.")
+                                  .arg(iface_arg.required(true))
+                                  .arg(smac_arg)
+                                  .arg(dmac_arg.required(true))
+                                  .arg(Arg::with_name("pkgs")
+                                           .short("n")
+                                           .long("pkgs")
+                                           .help("Amount of packets to send")
+                                           .default_value("1")
+                                           .takes_value(true)));
+    let matches = app.clone().get_matches();
+
+    if let Some(eth_matches) = matches.subcommand_matches("eth") {
+        let iface = get_iface(eth_matches, app.clone());
+        let smac = get_smac(eth_matches.value_of("smac"), &iface, app.clone());
+        let dmac = get_mac(eth_matches.value_of("dmac"), app.clone()).unwrap();
+        let pkgs = get_int(eth_matches.value_of("pkgs"), app.clone());
+        println!("Sending {} raw Ethernet packets from {} to {}",
+                 pkgs,
+                 smac,
+                 dmac);
+        let mut stack = NetworkStackBuilder::new()
+                            .set_interfaces(vec![iface.clone()])
+                            .create()
+                            .expect("Expected a working NetworkStack");
+
+        let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
+        {
+            let mut eth = eth.lock().unwrap();
+            let mut i = 1;
+            eth.send(pkgs, 2, |pkg| {
+                pkg.set_source(smac);
+                pkg.set_destination(dmac);
+                pkg.set_ethertype(EtherType::new(0x1337));
+                pkg.set_payload(&[i, i + 1]);
+                i += 1
+            });
+        }
+    }
+
+
+    // let my_ip = iface.ips
+    //                  .as_ref()
+    //                  .unwrap()
+    //                  .iter()
+    //                  .filter_map(|&i| {
+    //                      match i {
+    //                          IpAddr::V4(ip) => Some(ip),
+    //                          _ => None,
+    //                      }
+    //                  })
+    //                  .next()
+    //                  .expect("No IPv4 addr to use");
+    //
+    // // Figure out the GW addr in an ugly way. Not guaranteed to be correct
+    // let dst_ip = Ipv4Addr::new(my_ip.octets()[0], my_ip.octets()[1], my_ip.octets()[2], 1);
+    //
+    // let arp = stack.get_arp(&iface).expect("Expected arp");
+    // {
+    //     let mut arp = arp.lock().unwrap();
+    //     println!("Asking for MAC for {}", dst_ip);
+    //     let mac = arp.get(&dst_ip);
+    //     println!("MAC {} belongs to {}", mac, dst_ip);
+    //     let mac2 = arp.get(&dst_ip);
+    //     println!("Second time MAC {} belongs to {}", mac2, dst_ip);
+    // }
+    //
+    // let ipv4_conf = ipv4::Ipv4Conf::new(my_ip, 24, Ipv4Addr::new(10, 0, 0, 1)).unwrap();
+    // let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
+    // {
+    //     let ipv4 = ipv4_iface.lock().unwrap();
+    //     ipv4.send(dst_ip, 10, |pkg| {
+    //         pkg.set_payload(&[0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19]);
+    //     });
+    // }
+
+    thread::sleep(Duration::new(1, 0));
+}
+
+fn print_error(error: &str, app: App) -> ! {
+    eprintln!("ERROR: {}", error);
+    app.print_help().ok();
+    println!("");
+    process::exit(1);
+}
+
+fn get_iface(matches: &ArgMatches, app: App) -> NetworkInterface {
+    let iface_name = matches.value_of("iface").unwrap();
     let ifaces = util::get_network_interfaces();
     let mut iface = None;
     for curr_iface in ifaces.into_iter() {
-        println!("iface: {:?}", curr_iface);
-        if curr_iface.name == "en0" {
+        if curr_iface.name == iface_name {
             iface = Some(curr_iface);
+            break;
         }
     }
-    let iface = iface.unwrap();
-    let mut stack = NetworkStackBuilder::new()
-                        .set_interfaces(vec![iface.clone()])
-                        .create()
-                        .expect("Expected a working NetworkStack");
-    let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
-    {
-        let mut eth = eth.lock().unwrap();
-        let mut i = 1;
-        eth.send(5, 20, |pkg| {
-            pkg.set_source(MacAddr::new(0x10, 0x11, 0x12, 0x13, 0x14, 0x15));
-            pkg.set_destination(MacAddr::new(5, 6, 7, 8, 9, 4));
-            pkg.set_ethertype(EtherType::new(0x1337));
-            pkg.set_payload(&[i, i + 1]);
-            i += 1
-        });
+    match iface {
+        Some(i) => i,
+        None => {
+            print_error(&format!("Found no interface named {}\n", iface_name)[..],
+                        app)
+        }
     }
+}
 
-    let my_ip = iface.ips
-                     .as_ref()
-                     .unwrap()
-                     .iter()
-                     .filter_map(|&i| {
-                         match i {
-                             IpAddr::V4(ip) => Some(ip),
-                             _ => None,
-                         }
-                     })
-                     .next()
-                     .expect("No IPv4 addr to use");
+fn get_smac(mac: Option<&str>, iface: &NetworkInterface, app: App) -> MacAddr {
+    get_mac(mac, app.clone()).unwrap_or_else(|| {
+        match iface.mac {
+            Some(m) => m,
+            None => print_error("No MAC attached to selected interface", app),
+        }
+    })
+}
 
-    // Figure out the GW addr in an ugly way. Not guaranteed to be correct
-    let dst_ip = Ipv4Addr::new(my_ip.octets()[0], my_ip.octets()[1], my_ip.octets()[2], 1);
-
-    let arp = stack.get_arp(&iface).expect("Expected arp");
-    {
-        let mut arp = arp.lock().unwrap();
-        println!("Asking for MAC for {}", dst_ip);
-        let mac = arp.get(&dst_ip);
-        println!("MAC {} belongs to {}", mac, dst_ip);
-        let mac2 = arp.get(&dst_ip);
-        println!("Second time MAC {} belongs to {}", mac2, dst_ip);
+fn get_mac(mac: Option<&str>, app: App) -> Option<MacAddr> {
+    if let Some(mac) = mac {
+        match MacAddr::from_str(mac) {
+            Ok(mac) => Some(mac),
+            Err(_) => print_error(&format!("Invalid MAC format: {}", mac)[..], app),
+        }
+    } else {
+        None
     }
+}
 
-    let ipv4_conf = ipv4::Ipv4Conf::new(my_ip, 24, Ipv4Addr::new(10, 0, 0, 1)).unwrap();
-    let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
-    {
-        let ipv4 = ipv4_iface.lock().unwrap();
-        ipv4.send(dst_ip, 10, |pkg| {
-            pkg.set_payload(&[0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19]);
-        });
+fn get_int(i: Option<&str>, app: App) -> usize {
+    match i {
+        Some(i_str) => {
+            match i_str.parse::<usize>() {
+                Ok(i) => i,
+                Err(_) => print_error(&format!("Invalid integer: {}", i_str), app),
+            }
+        }
+        None => print_error("No integer given", app),
     }
-
-    thread::sleep(Duration::new(1, 0));
 }
