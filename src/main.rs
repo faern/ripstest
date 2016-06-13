@@ -3,9 +3,7 @@ extern crate rips;
 extern crate pnet;
 extern crate ipnetwork;
 
-use std::thread;
 use std::process;
-use std::time::Duration;
 use std::net::{Ipv4Addr, IpAddr};
 use std::fs::File;
 use std::io::{self, Read};
@@ -115,87 +113,97 @@ fn main() {
     let matches = app.clone().get_matches();
 
     if let Some(cmd_matches) = matches.subcommand_matches("eth") {
-        let iface = get_iface(cmd_matches, app.clone());
-        let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
-        let dmac = get_mac(cmd_matches.value_of("dmac"), app.clone()).unwrap();
-        let pkgs = get_int(cmd_matches.value_of("pkgs"), app.clone());
-        println!("Sending {} raw Ethernet packets from {} to {}",
-                 pkgs,
-                 smac,
-                 dmac);
-        let mut stack = NetworkStackBuilder::new()
-                            .set_interfaces(vec![iface.clone()])
-                            .create()
-                            .expect("Expected a working NetworkStack");
-
-        let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
-        {
-            let mut eth = eth.lock().expect("Unable to lock Ethernet");
-            let mut i = 1;
-            eth.send(pkgs, 2, |pkg| {
-                pkg.set_source(smac);
-                pkg.set_destination(dmac);
-                pkg.set_ethertype(EtherType::new(0x1337));
-                pkg.set_payload(&[i, i + 1]);
-                i += 1
-            });
-        }
+        cmd_eth(cmd_matches, app);
     } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
-        let iface = get_iface(cmd_matches, app.clone());
-        let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
-        let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
-        println!("Sending Arp request for {}", dest_ip);
-        let mut stack = NetworkStackBuilder::new()
-                            .set_interfaces(vec![iface.clone()])
-                            .create()
-                            .expect("Expected a working NetworkStack");
-
-        let arp = stack.get_arp(&iface).expect("Expected arp");
-        {
-            let mut arp = arp.lock().expect("Unable to lock Arp");
-            let mac = arp.get(&source_ip, &dest_ip);
-            println!("{} has MAC {}", dest_ip, mac);
-        }
+        cmd_arp(cmd_matches, app);
     } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
-        let iface = get_iface(cmd_matches, app.clone());
-        let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
-        let netmask = {
-            let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
-            if mask < 1 || mask >= 32 {
-                print_error("netmask must be in interval 1 - 31", app.clone());
-            }
-            mask as u8
-        };
-        let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
-                          .unwrap_or(default_gw(source_ip, netmask));
-        let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
-        let payload = match get_payload(cmd_matches.value_of("payload")) {
-            Ok(payload) => payload,
-            Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
-        };
-
-        println!("Sending IPv4 packet from:");
-        println!("\tIP: {}/{}", source_ip, netmask);
-        println!("\tgw: {}", gateway);
-        println!("To {}", dest_ip);
-        println!("With {} bytes payload", payload.len());
-
-        let mut stack = NetworkStackBuilder::new()
-                            .set_interfaces(vec![iface.clone()])
-                            .create()
-                            .expect("Expected a working NetworkStack");
-
-        let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
-        let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
-        {
-            let ipv4 = ipv4_iface.lock().unwrap();
-            ipv4.send(dest_ip, payload.len() as u16, |pkg| {
-                pkg.set_payload(&payload[..]);
-            });
-        }
+        cmd_ipv4(cmd_matches, app);
     }
+}
 
-    thread::sleep(Duration::new(1, 0));
+fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
+    let iface = get_iface(cmd_matches, app.clone());
+    let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
+    let dmac = get_mac(cmd_matches.value_of("dmac"), app.clone()).unwrap();
+    let pkgs = get_int(cmd_matches.value_of("pkgs"), app.clone());
+    println!("Sending {} raw Ethernet packets from {} to {}",
+             pkgs,
+             smac,
+             dmac);
+    let mut stack = NetworkStackBuilder::new()
+                        .set_interfaces(vec![iface.clone()])
+                        .create()
+                        .expect("Expected a working NetworkStack");
+
+    let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
+    {
+        let mut eth = eth.lock().expect("Unable to lock Ethernet");
+        let mut i = 1;
+        eth.send(pkgs, 2, |pkg| {
+            pkg.set_source(smac);
+            pkg.set_destination(dmac);
+            pkg.set_ethertype(EtherType::new(0x1337));
+            pkg.set_payload(&[i, i + 1]);
+            i += 1
+        });
+    }
+}
+
+fn cmd_arp(cmd_matches: &ArgMatches, app: App) {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
+    println!("Sending Arp request for {}", dest_ip);
+    let mut stack = NetworkStackBuilder::new()
+                        .set_interfaces(vec![iface.clone()])
+                        .create()
+                        .expect("Expected a working NetworkStack");
+
+    let arp = stack.get_arp(&iface).expect("Expected arp");
+    {
+        let mut arp = arp.lock().expect("Unable to lock Arp");
+        let mac = arp.get(&source_ip, &dest_ip);
+        println!("{} has MAC {}", dest_ip, mac);
+    }
+}
+
+fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let netmask = {
+        let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+        if mask < 1 || mask >= 32 {
+            print_error("netmask must be in interval 1 - 31", app.clone());
+        }
+        mask as u8
+    };
+    let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+                      .unwrap_or(default_gw(source_ip, netmask));
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+
+    println!("Sending IPv4 packet from:");
+    println!("\tIP: {}/{}", source_ip, netmask);
+    println!("\tgw: {}", gateway);
+    println!("To {}", dest_ip);
+    println!("With {} bytes payload", payload.len());
+
+    let mut stack = NetworkStackBuilder::new()
+                        .set_interfaces(vec![iface.clone()])
+                        .create()
+                        .expect("Expected a working NetworkStack");
+
+    let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
+    let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
+    {
+        let ipv4 = ipv4_iface.lock().unwrap();
+        ipv4.send(dest_ip, payload.len() as u16, |pkg| {
+            pkg.set_payload(&payload[..]);
+        });
+    }
 }
 
 fn print_error(error: &str, app: App) -> ! {
