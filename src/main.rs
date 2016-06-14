@@ -67,7 +67,7 @@ fn main() {
     let app = App::new("RIPS testsuite")
                   .version("1.0")
                   .author("Linus Färnstrand <faern@faern.net>")
-                  .about("Tests out the RIPS TCP/IP stack in the real world")
+                  .about("Test out the RIPS TCP/IP stack in the real world.")
                   .arg(Arg::with_name("v")
                            .short("v")
                            .multiple(true)
@@ -88,7 +88,7 @@ fn main() {
                   .subcommand(SubCommand::with_name("arp")
                                   .version("1.0")
                                   .about("Send an Arp query to the network and wait for the \
-                                          response")
+                                          response.")
                                   .arg(iface_arg.clone().required(true))
                                   .arg(Arg::with_name("ip")
                                            .long("ip")
