@@ -42,11 +42,11 @@ dependencies = [
 [[package]]
 name = "ipnetwork"
 version = "0.6.1"
-source = "git+https://github.com/faern/ipnetwork#0f9416f3b453a539a38b9222fdea3786a8a3def9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "ipnetwork"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -140,7 +140,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "rips"
 version = "0.0.0"
 dependencies = [
- "ipnetwork 0.6.1 (git+https://github.com/faern/ipnetwork)",
+ "ipnetwork 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet_packets 0.1.0 (git+https://github.com/faern/pnet_packets)",
 ]
