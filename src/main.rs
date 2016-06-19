@@ -140,9 +140,8 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
                         .create()
                         .expect("Expected a working NetworkStack");
 
-    let eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
+    let mut eth = stack.get_ethernet(&iface).expect("Expected Ethernet");
     {
-        let mut eth = eth.lock().expect("Unable to lock Ethernet");
         eth.send(pkgs, payload.len(), |pkg| {
             pkg.set_source(smac);
             pkg.set_destination(dmac);
@@ -202,7 +201,7 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
     let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
     let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
     {
-        let ipv4 = ipv4_iface.lock().unwrap();
+        let mut ipv4 = ipv4_iface.lock().unwrap();
         ipv4.send(dest_ip, payload.len() as u16, |pkg| {
             pkg.set_payload(&payload[..]);
         });
