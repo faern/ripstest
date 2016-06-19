@@ -47,7 +47,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "ipnetwork"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/faern/ipnetwork?branch=clonable-structs#17e96ae76422dd274c3f88e55c09c4ea19426c27"
 
 [[package]]
 name = "kernel32-sys"
@@ -140,7 +140,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "rips"
 version = "0.0.0"
 dependencies = [
- "ipnetwork 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ipnetwork 0.7.0 (git+https://github.com/faern/ipnetwork?branch=clonable-structs)",
  "pnet 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet_packets 0.1.0 (git+https://github.com/faern/pnet_packets)",
 ]

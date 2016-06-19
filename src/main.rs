@@ -161,12 +161,9 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) {
                         .create()
                         .expect("Expected a working NetworkStack");
 
-    let arp = stack.get_arp(&iface).expect("Expected arp");
-    {
-        let mut arp = arp.lock().expect("Unable to lock Arp");
-        let mac = arp.get(&source_ip, &dest_ip);
-        println!("{} has MAC {}", dest_ip, mac);
-    }
+    let mut arp = stack.get_arp(&iface).expect("Expected arp");
+    let mac = arp.get(&source_ip, &dest_ip);
+    println!("{} has MAC {}", dest_ip, mac);
 }
 
 fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
@@ -199,13 +196,10 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
                         .expect("Expected a working NetworkStack");
 
     let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
-    let ipv4_iface = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
-    {
-        let mut ipv4 = ipv4_iface.lock().unwrap();
-        ipv4.send(dest_ip, payload.len() as u16, |pkg| {
-            pkg.set_payload(&payload[..]);
-        });
-    }
+    let mut ipv4 = stack.add_ipv4(&iface, ipv4_conf).expect("Expected ipv4");
+    ipv4.send(dest_ip, payload.len() as u16, |pkg| {
+        pkg.set_payload(&payload[..]);
+    });
 }
 
 fn print_error(error: &str, app: App) -> ! {
