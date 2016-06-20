@@ -2,8 +2,8 @@
 name = "ripstest"
 version = "0.1.0"
 dependencies = [
- "clap 2.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ipnetwork 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap 2.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ipnetwork 0.7.0 (git+https://github.com/faern/ipnetwork?branch=clonable-structs)",
  "pnet 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rips 0.0.0",
 ]
@@ -28,7 +28,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "clap"
-version = "2.5.2"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "ansi_term 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -41,13 +41,8 @@ dependencies = [
 
 [[package]]
 name = "ipnetwork"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "ipnetwork"
 version = "0.7.0"
-source = "git+https://github.com/faern/ipnetwork?branch=clonable-structs#17e96ae76422dd274c3f88e55c09c4ea19426c27"
+source = "git+https://github.com/faern/ipnetwork?branch=clonable-structs#b5b0856a04623e43de78e0fd664329b6e376dea8"
 
 [[package]]
 name = "kernel32-sys"

@@ -311,7 +311,7 @@ fn get_payload(opt_path: Option<&str>) -> io::Result<Vec<u8>> {
 }
 
 fn default_gw(ip: Ipv4Addr, prefix: u8) -> Ipv4Addr {
-    let ip_net = Ipv4Network::new(ip, prefix);
+    let ip_net = Ipv4Network::new(ip, prefix).expect("Invalid network");
     let (_, net_int) = ip_net.network();
     Ipv4Addr::from(net_int + 1)
 }
