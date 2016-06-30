@@ -13,7 +13,6 @@ path = "../librips"
 
 [dependencies.ipnetwork]
 git = "https://github.com/faern/ipnetwork"
-branch = "clonable-structs"
 
 #[dependencies.pnet]
 #git = "https://github.com/libpnet/libpnet"

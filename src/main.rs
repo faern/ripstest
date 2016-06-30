@@ -202,7 +202,7 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
     });
 }
 
-fn print_error(error: &str, app: App) -> ! {
+fn print_error(error: &str, mut app: App) -> ! {
     eprintln!("ERROR: {}", error);
     app.print_help().ok();
     println!("");
