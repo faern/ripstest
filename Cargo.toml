@@ -4,9 +4,13 @@ version = "0.1.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 
 [dependencies]
-pnet = "0.10.0"
 clap = "2.5"
+#pnet = "0.10.0"
 #ipnetwork = "*"
+
+[dependencies.pnet]
+git = "https://github.com/faern/libpnet"
+branch = "mockpnet"
 
 [dependencies.rips]
 path = "../librips"
