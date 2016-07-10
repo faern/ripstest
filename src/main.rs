@@ -8,16 +8,21 @@ use std::net::{Ipv4Addr, IpAddr};
 use std::fs::File;
 use std::io::{self, Read};
 use std::str::FromStr;
+use std::thread::sleep;
+use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
 
 use pnet::util::{MacAddr, NetworkInterface};
 use pnet::datalink;
-use pnet::packet::ethernet::EtherType;
+use pnet::packet::ethernet::{EtherType, EtherTypes};
 
 use ipnetwork::Ipv4Network;
 
 use rips::ipv4;
+use rips::icmp;
 
 macro_rules! eprintln {
     ($($arg:tt)*) => (
@@ -105,6 +110,18 @@ fn main() {
                 .long("ip")
                 .help("Destination IP. Defaults to the gateway IP.")
                 .takes_value(true))
+            .arg(payload_arg.clone()))
+        .subcommand(SubCommand::with_name("ping")
+            .version("1.0")
+            .about("Send an echo request (ping) packet with a given payload to the network.")
+            .arg(iface_arg.clone().required(true))
+            .arg(source_ip_arg.clone())
+            .arg(netmask_arg.clone())
+            .arg(gateway_arg.clone())
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("Destination IP. Defaults to the gateway IP.")
+                .takes_value(true))
             .arg(payload_arg.clone()));
 
     let matches = app.clone().get_matches();
@@ -115,7 +132,10 @@ fn main() {
         cmd_arp(cmd_matches, app);
     } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
         cmd_ipv4(cmd_matches, app);
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
+        cmd_ping(cmd_matches, app);
     }
+    sleep(Duration::new(1, 0));
 }
 
 fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
@@ -191,6 +211,49 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
     ipv4.send(dest_ip, payload.len() as u16, |pkg| {
         pkg.set_payload(&payload[..]);
     });
+}
+
+fn cmd_ping(cmd_matches: &ArgMatches, app: App) {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let netmask = {
+        let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+        if mask < 1 || mask >= 32 {
+            print_error("netmask must be in interval 1 - 31", app.clone());
+        }
+        mask as u8
+    };
+    let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+        .unwrap_or(default_gw(source_ip, netmask));
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+
+    println!("Sending echo request packet from:");
+    println!("\tIP: {}/{}", source_ip, netmask);
+    println!("\tgw: {}", gateway);
+    println!("To {}", dest_ip);
+    println!("With {} bytes payload", payload.len());
+
+    let mut stack = rips::stack().expect("Expected a working NetworkStack");
+
+    let mac = iface.mac.unwrap();
+    let ethernet = stack.get_ethernet(mac).unwrap();
+
+    let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
+    let ipv4 = stack.add_ipv4(mac, ipv4_conf).expect("Expected ipv4");
+
+    let mut ipv4s = HashMap::new();
+    ipv4s.insert(ipv4.conf.ip, ipv4.clone());
+    let locked_ipv4s = Arc::new(Mutex::new(ipv4s));
+    let ipv4_ethernet_listener = ipv4::Ipv4EthernetListener::new(locked_ipv4s);
+    ethernet.set_listener(EtherTypes::Ipv4, ipv4_ethernet_listener);
+
+    let icmp = icmp::Icmp::new(ipv4);
+    let mut ping = icmp::Ping::new(icmp);
+    ping.send(dest_ip, &payload[..]).expect("Not enough buffer").expect("Sending error");
 }
 
 fn print_error(error: &str, mut app: App) -> ! {
