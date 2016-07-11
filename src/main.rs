@@ -10,18 +10,17 @@ use std::io::{self, Read};
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
 
 use pnet::util::{MacAddr, NetworkInterface};
 use pnet::datalink;
-use pnet::packet::ethernet::{EtherType, EtherTypes};
+use pnet::packet::ethernet::EtherType;
 
 use ipnetwork::Ipv4Network;
 
-use rips::ipv4;
+use rips::ethernet::Ethernet;
+use rips::ipv4::{self, Ipv4Factory};
 use rips::icmp;
 
 macro_rules! eprintln {
@@ -127,18 +126,20 @@ fn main() {
     let matches = app.clone().get_matches();
 
     if let Some(cmd_matches) = matches.subcommand_matches("eth") {
-        cmd_eth(cmd_matches, app);
+        cmd_eth(cmd_matches, app)
     } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
-        cmd_arp(cmd_matches, app);
+        cmd_arp(cmd_matches, app)
     } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
-        cmd_ipv4(cmd_matches, app);
+        cmd_ipv4(cmd_matches, app)
     } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
-        cmd_ping(cmd_matches, app);
-    }
+        cmd_ping(cmd_matches, app)
+    } else {
+        Ok(())
+    }.expect("Command failed");
     sleep(Duration::new(1, 0));
 }
 
-fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
+fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
     let dmac = get_mac(cmd_matches.value_of("dmac"), app.clone()).unwrap();
@@ -152,34 +153,31 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) {
              smac,
              dmac,
              payload.len());
-    let stack = rips::stack().expect("Expected a working NetworkStack");
 
-    let mac = iface.mac.unwrap();
-    let mut eth = stack.get_ethernet(mac).expect("Expected Ethernet");
-    {
-        eth.send(pkgs, payload.len(), |pkg| {
-            pkg.set_source(smac);
-            pkg.set_destination(dmac);
-            pkg.set_ethertype(EtherType::new(0x1337));
-            pkg.set_payload(&payload);
-        });
-    }
+    let mut ethernet = try!(create_ethernet(iface));
+    ethernet.send(pkgs, payload.len(), |pkg| {
+        pkg.set_source(smac);
+        pkg.set_destination(dmac);
+        pkg.set_ethertype(EtherType::new(0x1337));
+        pkg.set_payload(&payload);
+    }).unwrap()
 }
 
-fn cmd_arp(cmd_matches: &ArgMatches, app: App) {
+fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
     println!("Sending Arp request for {}", dest_ip);
-    let stack = rips::stack().expect("Expected a working NetworkStack");
 
-    let mac = iface.mac.unwrap();
-    let mut arp = stack.get_arp(mac).expect("Expected arp");
+    let ethernet = try!(create_ethernet(iface));
+    let ipv4_factory = Ipv4Factory::new(ethernet);
+    let mut arp = ipv4_factory.get_arp();
     let mac = arp.get(source_ip, dest_ip);
     println!("{} has MAC {}", dest_ip, mac);
+    Ok(())
 }
 
-fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
+fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
     let netmask = {
@@ -203,17 +201,15 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) {
     println!("To {}", dest_ip);
     println!("With {} bytes payload", payload.len());
 
-    let mut stack = rips::stack().expect("Expected a working NetworkStack");
-
-    let mac = iface.mac.unwrap();
-    let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
-    let mut ipv4 = stack.add_ipv4(mac, ipv4_conf).expect("Expected ipv4");
+    let ipv4_factory = Ipv4Factory::new(try!(create_ethernet(iface)));
+    let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
+    let mut ipv4 = ipv4_factory.add_ip(ipv4_conf);
     ipv4.send(dest_ip, payload.len() as u16, |pkg| {
         pkg.set_payload(&payload[..]);
-    });
+    }).unwrap()
 }
 
-fn cmd_ping(cmd_matches: &ArgMatches, app: App) {
+fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
     let netmask = {
@@ -237,23 +233,26 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) {
     println!("To {}", dest_ip);
     println!("With {} bytes payload", payload.len());
 
-    let mut stack = rips::stack().expect("Expected a working NetworkStack");
-
-    let mac = iface.mac.unwrap();
-    let ethernet = stack.get_ethernet(mac).unwrap();
-
-    let ipv4_conf = ipv4::Ipv4Conf::new(source_ip, netmask, gateway).unwrap();
-    let ipv4 = stack.add_ipv4(mac, ipv4_conf).expect("Expected ipv4");
-
-    let mut ipv4s = HashMap::new();
-    ipv4s.insert(ipv4.conf.ip, ipv4.clone());
-    let locked_ipv4s = Arc::new(Mutex::new(ipv4s));
-    let ipv4_ethernet_listener = ipv4::Ipv4EthernetListener::new(locked_ipv4s);
-    ethernet.set_listener(EtherTypes::Ipv4, ipv4_ethernet_listener);
+    let ipv4_factory = Ipv4Factory::new(try!(create_ethernet(iface)));
+    let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
+    let ipv4 = ipv4_factory.add_ip(ipv4_conf);
 
     let icmp = icmp::Icmp::new(ipv4);
-    let mut ping = icmp::Ping::new(icmp);
-    ping.send(dest_ip, &payload[..]).expect("Not enough buffer").expect("Sending error");
+    let mut ping = icmp::Echo::new(icmp);
+    ping.send(dest_ip, &payload[..]).unwrap()
+}
+
+fn create_ethernet(interface: NetworkInterface) -> io::Result<Ethernet> {
+    let mac = match interface.mac {
+        Some(mac) => mac,
+        None => {
+            return Err(io::Error::new(io::ErrorKind::Other,
+                                      format!("No mac for {}", interface.name)))
+        }
+    };
+    let config = datalink::Config::default();
+    let channel = try!(datalink::channel(&interface, config));
+    Ok(Ethernet::new(mac, channel))
 }
 
 fn print_error(error: &str, mut app: App) -> ! {
