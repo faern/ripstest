@@ -17,12 +17,13 @@ use clap::{Arg, App, SubCommand, ArgMatches};
 use pnet::util::MacAddr;
 use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::EtherType;
+use pnet::packet::ip::IpNextHeaderProtocols;
 
 use ipnetwork::Ipv4Network;
 
 use rips::ethernet::{Ethernet, EthernetListener};
 use rips::arp::ArpFactory;
-use rips::ipv4::{self, Ipv4Factory};
+use rips::ipv4::{self, Ipv4Factory, Ipv4Listener};
 use rips::icmp;
 
 macro_rules! eprintln {
@@ -138,7 +139,7 @@ fn main() {
     } else {
         Ok(())
     }.expect("Command failed");
-    sleep(Duration::new(1, 0));
+    sleep(Duration::new(2, 0));
 }
 
 fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
@@ -156,7 +157,7 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
              dmac,
              payload.len());
 
-    let mut ethernet = try!(create_ethernet(iface, HashMap::new()));
+    let mut ethernet = try!(create_ethernet(iface, vec![]));
     ethernet.send(pkgs, payload.len(), |pkg| {
         pkg.set_source(smac);
         pkg.set_destination(dmac);
@@ -172,7 +173,7 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     println!("Sending Arp request for {}", dest_ip);
 
     let arp_factory = ArpFactory::new();
-    let ethernet = try!(create_ethernet(iface, arp_factory.listeners()));
+    let ethernet = try!(create_ethernet(iface, vec![arp_factory.listener()]));
     let mut arp = arp_factory.arp(ethernet);
     let mac = arp.get(source_ip, dest_ip);
     println!("{} has MAC {}", dest_ip, mac);
@@ -238,8 +239,13 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     println!("To {}", dest_ip);
     println!("With {} bytes payload", payload.len());
 
+    let icmp_factory = icmp::IcmpFactory::new();
+    let icmp_listener = icmp_factory.listener();
+    let mut ipv4_listeners = HashMap::new();
+    ipv4_listeners.insert(IpNextHeaderProtocols::Icmp, Box::new(icmp_listener) as Box<Ipv4Listener>);
+
     let arp_factory = ArpFactory::new();
-    let mut ipv4_factory = Ipv4Factory::new(arp_factory, HashMap::new());
+    let mut ipv4_factory = Ipv4Factory::new(arp_factory, ipv4_listeners);
 
     let ethernet = try!(create_ethernet(iface, ipv4_factory.listeners().unwrap()));
     let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
@@ -250,7 +256,7 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     ping.send(dest_ip, &payload[..]).unwrap()
 }
 
-fn create_ethernet(interface: NetworkInterface, listeners: HashMap<EtherType, Box<EthernetListener>>) -> io::Result<Ethernet> {
+fn create_ethernet(interface: NetworkInterface, listeners: Vec<Box<EthernetListener>>) -> io::Result<Ethernet> {
     let mac = match interface.mac {
         Some(mac) => mac,
         None => {
