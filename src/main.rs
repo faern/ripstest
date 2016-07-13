@@ -9,7 +9,8 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::str::FromStr;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::sync::mpsc;
 use std::collections::HashMap;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
@@ -18,6 +19,9 @@ use pnet::util::MacAddr;
 use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::EtherType;
 use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::icmp::icmp_types;
+use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
@@ -240,7 +244,13 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     println!("With {} bytes payload", payload.len());
 
     let icmp_factory = icmp::IcmpFactory::new();
+    let (tx, rx) = mpsc::channel();
+    let ping_listener = PingListener { tx: tx };
+    icmp_factory.add_listener(icmp_types::EchoReply, ping_listener);
+
     let icmp_listener = icmp_factory.listener();
+
+
     let mut ipv4_listeners = HashMap::new();
     ipv4_listeners.insert(IpNextHeaderProtocols::Icmp, Box::new(icmp_listener) as Box<Ipv4Listener>);
 
@@ -252,8 +262,32 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     let ipv4 = ipv4_factory.ip(ethernet, ipv4_conf);
 
     let icmp = icmp::Icmp::new(ipv4);
+    let timer = Instant::now();
     let mut ping = icmp::Echo::new(icmp);
-    ping.send(dest_ip, &payload[..]).unwrap()
+    let result = ping.send(dest_ip, &payload[..]).unwrap();
+    for _ in 0..200 {
+        match rx.try_recv() {
+            Ok(pkg) => {
+                let ip_pkg = Ipv4Packet::new(&pkg[..]).unwrap();
+                let elapsed = timer.elapsed();
+                println!("Ping reply from {} in {:?} ms", ip_pkg.get_source(), dur_to_ms(elapsed));
+                break;
+            },
+            Err(_) => sleep(Duration::new(0, 10_000_000)),
+        }
+    }
+    result
+}
+
+struct PingListener {
+    pub tx: mpsc::Sender<Vec<u8>>,
+}
+
+impl icmp::IcmpListener for PingListener {
+    fn recv(&mut self, packet: Ipv4Packet) {
+        println!("MockIcmpListener got a packet!");
+        self.tx.send(packet.packet().to_vec()).unwrap();
+    }
 }
 
 fn create_ethernet(interface: NetworkInterface, listeners: Vec<Box<EthernetListener>>) -> io::Result<Ethernet> {
@@ -381,4 +415,10 @@ fn default_gw(ip: Ipv4Addr, prefix: u8) -> Ipv4Addr {
     let ip_net = Ipv4Network::new(ip, prefix).expect("Invalid network");
     let net = u32::from(ip_net.network());
     Ipv4Addr::from(net + 1)
+}
+
+fn dur_to_ms(duration: Duration) -> u64 {
+    let secs = duration.as_secs();
+    let ns = duration.subsec_nanos() as u64;
+    (secs * 1000) + (ns / 1_000_000)
 }
