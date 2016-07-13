@@ -417,8 +417,8 @@ fn default_gw(ip: Ipv4Addr, prefix: u8) -> Ipv4Addr {
     Ipv4Addr::from(net + 1)
 }
 
-fn dur_to_ms(duration: Duration) -> u64 {
-    let secs = duration.as_secs();
-    let ns = duration.subsec_nanos() as u64;
-    (secs * 1000) + (ns / 1_000_000)
+fn dur_to_ms(duration: Duration) -> f64 {
+    let secs = duration.as_secs() as f64;
+    let ns = duration.subsec_nanos() as f64;
+    (secs * 1000.0) + (ns / 1_000_000.0)
 }
