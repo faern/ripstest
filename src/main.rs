@@ -8,9 +8,8 @@ use std::net::{Ipv4Addr, IpAddr};
 use std::fs::File;
 use std::io::{self, Read};
 use std::str::FromStr;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-use std::sync::mpsc;
+use std::time::{Duration, SystemTime};
+use std::sync::{mpsc, Arc, Mutex};
 use std::collections::HashMap;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
@@ -25,9 +24,10 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
+use rips::{Interface, EthernetChannel};
 use rips::ethernet::{Ethernet, EthernetListener};
 use rips::arp::ArpFactory;
-use rips::ipv4::{self, Ipv4Factory, Ipv4Listener};
+use rips::ipv4::{self, Ipv4, Ipv4Listener, Ipv4EthernetListener};
 use rips::icmp;
 
 macro_rules! eprintln {
@@ -143,7 +143,6 @@ fn main() {
     } else {
         Ok(())
     }.expect("Command failed");
-    sleep(Duration::new(2, 0));
 }
 
 fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
@@ -209,11 +208,14 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     println!("With {} bytes payload", payload.len());
 
     let arp_factory = ArpFactory::new();
-    let mut ipv4_factory = Ipv4Factory::new(arp_factory, HashMap::new());
+    //let mut ipv4_factory = Ipv4Factory::new(arp_factory, HashMap::new());
+    let ipv4_listeners = Arc::new(Mutex::new(HashMap::new()));
 
-    let ethernet = try!(create_ethernet(iface, ipv4_factory.listeners().unwrap()));
+    let ethernet_listeners = vec![arp_factory.listener(), Ipv4EthernetListener::new(ipv4_listeners)];
+
+    let ethernet = try!(create_ethernet(iface, ethernet_listeners));
     let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
-    let mut ipv4 = ipv4_factory.ip(ethernet, ipv4_conf);
+    let mut ipv4 = Ipv4::new(ethernet.clone(), arp_factory.arp(ethernet), ipv4_conf);
     ipv4.send(dest_ip, payload.len() as u16, |pkg| {
         pkg.set_payload(&payload[..]);
     }).unwrap()
@@ -243,50 +245,48 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
     println!("To {}", dest_ip);
     println!("With {} bytes payload", payload.len());
 
-    let icmp_factory = icmp::IcmpFactory::new();
+
     let (tx, rx) = mpsc::channel();
-    let ping_listener = PingListener { tx: tx };
-    icmp_factory.add_listener(icmp_types::EchoReply, ping_listener);
+    let ping_listener = Box::new(PingListener { tx: tx }) as Box<icmp::IcmpListener>;
+    let mut icmp_listeners = HashMap::new();
+    icmp_listeners.insert(icmp_types::EchoReply, vec![ping_listener]);
 
-    let icmp_listener = icmp_factory.listener();
+    let icmp_listener = icmp::IcmpIpv4Listener::new(Arc::new(Mutex::new(icmp_listeners)));
 
-
-    let mut ipv4_listeners = HashMap::new();
-    ipv4_listeners.insert(IpNextHeaderProtocols::Icmp, Box::new(icmp_listener) as Box<Ipv4Listener>);
+    let mut ipv4_ip_listeners = HashMap::new();
+    ipv4_ip_listeners.insert(IpNextHeaderProtocols::Icmp, icmp_listener);
 
     let arp_factory = ArpFactory::new();
-    let mut ipv4_factory = Ipv4Factory::new(arp_factory, ipv4_listeners);
+    let mut ipv4_listeners = HashMap::new();
+    ipv4_listeners.insert(source_ip, ipv4_ip_listeners);
+    let ipv4_ethernet_listener = Ipv4EthernetListener::new(Arc::new(Mutex::new(ipv4_listeners)));
 
-    let ethernet = try!(create_ethernet(iface, ipv4_factory.listeners().unwrap()));
+    let ethernet_listeners = vec![arp_factory.listener(), ipv4_ethernet_listener];
+
+    let ethernet = try!(create_ethernet(iface, ethernet_listeners));
     let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
-    let ipv4 = ipv4_factory.ip(ethernet, ipv4_conf);
+    let ipv4 = Ipv4::new(ethernet.clone(), arp_factory.arp(ethernet), ipv4_conf);
 
-    let icmp = icmp::Icmp::new(ipv4);
-    let timer = Instant::now();
-    let mut ping = icmp::Echo::new(icmp);
-    let result = ping.send(dest_ip, &payload[..]).unwrap();
-    for _ in 0..200 {
-        match rx.try_recv() {
-            Ok(pkg) => {
-                let ip_pkg = Ipv4Packet::new(&pkg[..]).unwrap();
-                let elapsed = timer.elapsed();
-                println!("Ping reply from {} in {:?} ms", ip_pkg.get_source(), dur_to_ms(elapsed));
-                break;
-            },
-            Err(_) => sleep(Duration::new(0, 10_000_000)),
-        }
-    }
+    let mut icmp = icmp::Icmp::new(ipv4);
+    let start_time = SystemTime::now();
+
+    let result = icmp.send_echo(dest_ip, &payload[..]).unwrap();
+    let (time, pkg) = rx.recv().unwrap();
+
+    let elapsed1 = time.elapsed().unwrap();
+    let elapsed2 = start_time.elapsed().unwrap();
+    let ip_pkg = Ipv4Packet::new(&pkg[..]).unwrap();
+    println!("Ping reply from {} in {:?}ms -> {:?}ms", ip_pkg.get_source(), dur_to_ms(elapsed1), dur_to_ms(elapsed2));
     result
 }
 
 struct PingListener {
-    pub tx: mpsc::Sender<Vec<u8>>,
+    pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
 }
 
 impl icmp::IcmpListener for PingListener {
-    fn recv(&mut self, packet: Ipv4Packet) {
-        println!("MockIcmpListener got a packet!");
-        self.tx.send(packet.packet().to_vec()).unwrap();
+    fn recv(&mut self, time: SystemTime, packet: &Ipv4Packet) {
+        self.tx.send((time, packet.packet().to_vec())).unwrap();
     }
 }
 
@@ -298,9 +298,17 @@ fn create_ethernet(interface: NetworkInterface, listeners: Vec<Box<EthernetListe
                                       format!("No mac for {}", interface.name)))
         }
     };
+    let rips_interface = Interface {
+        name: interface.name.clone(),
+        mac: mac,
+    };
     let config = datalink::Config::default();
-    let channel = try!(datalink::channel(&interface, config));
-    Ok(Ethernet::new(mac, channel, listeners))
+    let channel = match try!(datalink::channel(&interface, config)) {
+        datalink::Channel::Ethernet(tx, rx) => EthernetChannel(tx, rx),
+        _ => return Err(io::Error::new(io::ErrorKind::Other,
+                                  format!("Invalid channel returned"))),
+    };
+    Ok(Ethernet::new(rips_interface, channel, listeners))
 }
 
 fn print_error(error: &str, mut app: App) -> ! {
