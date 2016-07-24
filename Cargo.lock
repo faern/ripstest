@@ -2,10 +2,10 @@
 name = "ripstest"
 version = "0.1.0"
 dependencies = [
- "clap 2.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap 2.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ipnetwork 0.9.0 (git+https://github.com/faern/ipnetwork)",
- "pnet 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rips 0.0.0",
+ "pnet 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rips 0.0.0 (git+https://github.com/faern/librips)",
 ]
 
 [[package]]
@@ -28,7 +28,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "clap"
-version = "2.9.2"
+version = "2.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "ansi_term 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -56,11 +56,6 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "libc"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
@@ -79,13 +74,15 @@ dependencies = [
 
 [[package]]
 name = "pnet"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet_macros 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet_macros_support 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "syntex 0.31.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ws2_32-sys 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -123,9 +120,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "rips"
 version = "0.0.0"
+source = "git+https://github.com/faern/librips#3225efe10ab517b8abd0288befd13a5c15e3e33b"
 dependencies = [
  "ipnetwork 0.9.0 (git+https://github.com/faern/ipnetwork)",
- "pnet 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pnet 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -222,4 +220,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "winapi-build"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "ws2_32-sys"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
