@@ -24,7 +24,7 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
-use rips::{Interface, Tx, TxResult, NetworkStack, EthernetChannel};
+use rips::{Interface, Tx, TxResult, TxError, StackResult, StackError, NetworkStack, EthernetChannel};
 use rips::ethernet::{EthernetTx, EthernetRx, EthernetListener};
 use rips::arp::ArpFactory;
 // use rips::ipv4::{self, Ipv4, Ipv4Listener, Ipv4EthernetListener};
@@ -59,6 +59,14 @@ fn main() {
         .long("source_ip")
         .help("Local IPv4 Address. Defaults to the first IPv4 address on the given interface.")
         .takes_value(true);
+    let src_port_arg = Arg::with_name("sport")
+        .long("sport")
+        .help("Source port.")
+        .default_value("1337");
+    let dst_port_arg = Arg::with_name("dport")
+        .long("dport")
+        .help("Destination port.")
+        .default_value("9999");
     let netmask_arg = Arg::with_name("netmask")
         .long("mask")
         .help("Local netmask.")
@@ -128,6 +136,20 @@ fn main() {
                 .long("ip")
                 .help("Destination IP. Defaults to the gateway IP.")
                 .takes_value(true))
+            .arg(payload_arg.clone()))
+        .subcommand(SubCommand::with_name("udp")
+            .version("1.0")
+            .about("Send UDP packets with a given payload")
+            .arg(iface_arg.clone().required(true))
+            .arg(source_ip_arg.clone())
+            .arg(netmask_arg.clone())
+            .arg(gateway_arg.clone())
+            .arg(src_port_arg.clone())
+            .arg(dst_port_arg.clone())
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("Destination IP. Defaults to the gateway IP.")
+                .takes_value(true))
             .arg(payload_arg.clone()));
 
     let matches = app.clone().get_matches();
@@ -136,16 +158,18 @@ fn main() {
         cmd_eth(cmd_matches, app)
     } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
         cmd_arp(cmd_matches, app)
-    // } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
-    //     cmd_ipv4(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
+        cmd_ipv4(cmd_matches, app)
     // } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
     //     cmd_ping(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("udp") {
+        cmd_udp(cmd_matches, app)
     } else {
         Ok(())
     }.expect("Command failed");
 }
 
-fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> TxResult {
+fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
     let dmac = get_dmac(cmd_matches.value_of("dmac"), app.clone());
@@ -160,64 +184,60 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> TxResult {
              dmac,
              payload.len());
 
-    let (stack, interface) = try!(create_stack(iface));
+    let (stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
     let mut ethernet_tx = stack.ethernet_tx(&interface, dmac).unwrap();
     ethernet_tx.send(pkgs, std::cmp::max(1, payload.len()), |pkg| {
         pkg.set_ethertype(EtherType::new(0x1337));
         pkg.set_payload(&payload);
-    })
+    }).map_err(|e| StackError::from(e))
 }
 
-fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> TxResult {
+fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
     println!("Sending Arp request for {}", dest_ip);
 
-    let (stack, interface) = try!(create_stack(iface));
+    let (stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
     let mut arp_tx = stack.arp_tx(&interface).unwrap();
-    let mac = arp_tx.get(source_ip, dest_ip);
+    let mac = try!(arp_tx.get(source_ip, dest_ip));
     println!("{} has MAC {}", dest_ip, mac);
     Ok(())
 }
 
-// fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
-//     let iface = get_iface(cmd_matches, app.clone());
-//     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
-//     let netmask = {
-//         let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
-//         if mask < 1 || mask >= 32 {
-//             print_error("netmask must be in interval 1 - 31", app.clone());
-//         }
-//         mask as u8
-//     };
-//     let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
-//         .unwrap_or(default_gw(source_ip, netmask));
-//     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
-//     let payload = match get_payload(cmd_matches.value_of("payload")) {
-//         Ok(payload) => payload,
-//         Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
-//     };
-//
-//     println!("Sending IPv4 packet from:");
-//     println!("\tIP: {}/{}", source_ip, netmask);
-//     println!("\tgw: {}", gateway);
-//     println!("To {}", dest_ip);
-//     println!("With {} bytes payload", payload.len());
-//
-//     let arp_factory = ArpFactory::new();
-//     //let mut ipv4_factory = Ipv4Factory::new(arp_factory, HashMap::new());
-//     let ipv4_listeners = Arc::new(Mutex::new(HashMap::new()));
-//
-//     let ethernet_listeners = vec![arp_factory.listener(), Ipv4EthernetListener::new(ipv4_listeners)];
-//
-//     let ethernet = try!(create_ethernet(iface, ethernet_listeners));
-//     let ipv4_conf = ipv4::Ipv4Config::new(source_ip, netmask, gateway).unwrap();
-//     let mut ipv4 = Ipv4::new(ethernet.clone(), arp_factory.arp(ethernet), ipv4_conf);
-//     ipv4.send(dest_ip, payload.len() as u16, |pkg| {
-//         pkg.set_payload(&payload[..]);
-//     }).unwrap()
-// }
+fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let netmask = {
+        let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+        if mask < 1 || mask >= 32 {
+            print_error("netmask must be in interval 1 - 31", app.clone());
+        }
+        mask as u8
+    };
+    let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+        .unwrap_or(default_gw(source_ip, netmask));
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+
+    println!("Sending IPv4 packet from:");
+    println!("\tIP: {}/{}", source_ip, netmask);
+    println!("\tgw: {}", gateway);
+    println!("To {}", dest_ip);
+    println!("With {} bytes payload", payload.len());
+
+    let (mut stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+
+    let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
+    try!(stack.add_ipv4(&interface, ipv4_conf));
+    let mut ipv4_tx = try!(stack.ipv4_tx(dest_ip));
+    ipv4_tx.send(payload.len() as u16, |pkg| {
+        pkg.set_payload(&payload[..]);
+    }).map_err(|e| StackError::from(e))
+}
 
 // fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
 //     let iface = get_iface(cmd_matches, app.clone());
@@ -277,6 +297,42 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> TxResult {
 //     println!("Ping reply from {} in {:?}ms -> {:?}ms", ip_pkg.get_source(), dur_to_ms(elapsed1), dur_to_ms(elapsed2));
 //     result
 // }
+
+fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let netmask = {
+        let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+        if mask < 1 || mask >= 32 {
+            print_error("netmask must be in interval 1 - 31", app.clone());
+        }
+        mask as u8
+    };
+    let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+        .unwrap_or(default_gw(source_ip, netmask));
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+    let src_port = get_int(cmd_matches.value_of("sport"), app.clone()) as u16;
+    let dst_port = get_int(cmd_matches.value_of("dport"), app.clone()) as u16;
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+
+    println!("Sending IPv4 UDP packet from:");
+    println!("\tIP: {}/{}:{}", source_ip, netmask, src_port);
+    println!("\tgw: {}", gateway);
+    println!("To {}:{}", dest_ip, dst_port);
+    println!("With {} bytes payload", payload.len());
+
+    let (mut stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+
+    let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
+    try!(stack.add_ipv4(&interface, ipv4_conf));
+    let mut udp_tx = try!(stack.udp_tx(dest_ip, src_port, dst_port));
+    udp_tx.send(payload.len() as u16, |pkg| {
+        pkg.set_payload(&payload[..]);
+    }).map_err(|e| StackError::from(e))
+}
 
 // struct PingListener {
 //     pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
