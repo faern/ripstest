@@ -332,6 +332,11 @@ fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
+    {
+        let routing_table = stack.routing_table();
+        let default = Ipv4Network::from_cidr("0.0.0.0/0").unwrap();
+        routing_table.add_route(default, Some(gateway), interface);
+    }
     let mut udp_tx = try!(stack.udp_tx(dest_ip, src_port, dst_port));
     udp_tx.send(payload.len() as u16, |pkg| {
         pkg.set_payload(&payload[..]);
