@@ -186,9 +186,8 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let (stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
     let mut ethernet_tx = stack.ethernet_tx(&interface, dmac).unwrap();
-    ethernet_tx.send(pkgs, std::cmp::max(1, payload.len()), |pkg| {
-        pkg.set_ethertype(EtherType::new(0x1337));
-        pkg.set_payload(&payload);
+    ethernet_tx.send(pkgs, std::cmp::max(1, payload.len()), EtherType::new(0x1337), |pload| {
+        pload[..payload.len()].copy_from_slice(&payload);
     }).map_err(|e| StackError::from(e))
 }
 
@@ -233,9 +232,14 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
+    {
+        let routing_table = stack.routing_table();
+        let default = Ipv4Network::from_cidr("0.0.0.0/0").unwrap();
+        routing_table.add_route(default, Some(gateway), interface);
+    }
     let mut ipv4_tx = try!(stack.ipv4_tx(dest_ip));
-    ipv4_tx.send(payload.len() as u16, |pkg| {
-        pkg.set_payload(&payload[..]);
+    ipv4_tx.send(payload.len() as u16, IpNextHeaderProtocols::Igmp, |pload| {
+        pload[..payload.len()].copy_from_slice(&payload);
     }).map_err(|e| StackError::from(e))
 }
 
