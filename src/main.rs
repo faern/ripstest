@@ -27,8 +27,7 @@ use ipnetwork::Ipv4Network;
 use rips::{Interface, Tx, TxResult, TxError, StackResult, StackError, NetworkStack, EthernetChannel};
 use rips::ethernet::{EthernetTx, EthernetRx, EthernetListener};
 use rips::arp::ArpFactory;
-// use rips::ipv4::{self, Ipv4, Ipv4Listener, Ipv4EthernetListener};
-// use rips::icmp;
+use rips::icmp;
 
 macro_rules! eprintln {
     ($($arg:tt)*) => (
@@ -184,7 +183,8 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
              dmac,
              payload.len());
 
-    let (stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+    let stack = try!(rips::default_stack());
+    let interface = stack.interface_from_name(&iface.name).unwrap();
     let mut ethernet_tx = stack.ethernet_tx(&interface, dmac).unwrap();
     ethernet_tx.send(pkgs, std::cmp::max(1, payload.len()), EtherType::new(0x1337), |pload| {
         pload[..payload.len()].copy_from_slice(&payload);
@@ -197,7 +197,8 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
     println!("Sending Arp request for {}", dest_ip);
 
-    let (stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+    let stack = try!(rips::default_stack());
+    let interface = stack.interface_from_name(&iface.name).unwrap();
     let mut arp_tx = stack.arp_tx(&interface).unwrap();
     let mac = try!(arp_tx.get(source_ip, dest_ip));
     println!("{} has MAC {}", dest_ip, mac);
@@ -228,7 +229,8 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     println!("To {}", dest_ip);
     println!("With {} bytes payload", payload.len());
 
-    let (mut stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+    let mut stack = try!(rips::default_stack());
+    let interface = stack.interface_from_name(&iface.name).unwrap().clone();
 
     let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
@@ -273,7 +275,7 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 //     let mut icmp_listeners = HashMap::new();
 //     icmp_listeners.insert(icmp_types::EchoReply, vec![ping_listener]);
 //
-//     let icmp_listener = icmp::IcmpIpv4Listener::new(Arc::new(Mutex::new(icmp_listeners)));
+//     let icmp_listener = icmp::IcmpRx::new(Arc::new(Mutex::new(icmp_listeners)));
 //
 //     let mut ipv4_ip_listeners = HashMap::new();
 //     ipv4_ip_listeners.insert(IpNextHeaderProtocols::Icmp, icmp_listener);
@@ -328,7 +330,8 @@ fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     println!("To {}:{}", dest_ip, dst_port);
     println!("With {} bytes payload", payload.len());
 
-    let (mut stack, interface) = try!(create_stack(iface).map_err(|e| TxError::from(e)));
+    let mut stack = try!(rips::default_stack());
+    let interface = stack.interface_from_name(&iface.name).unwrap().clone();
 
     let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
@@ -343,40 +346,14 @@ fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     }).map_err(|e| StackError::from(e))
 }
 
-// struct PingListener {
-//     pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
-// }
-//
-// impl icmp::IcmpListener for PingListener {
-//     fn recv(&mut self, time: SystemTime, packet: &Ipv4Packet) {
-//         self.tx.send((time, packet.packet().to_vec())).unwrap();
-//     }
-// }
-
-fn convert_interface(interface: &NetworkInterface) -> io::Result<Interface> {
-    match interface.mac {
-        Some(mac) => Ok(Interface {
-            name: interface.name.clone(),
-            mac: mac,
-        }),
-        None => {
-            Err(io::Error::new(io::ErrorKind::Other,
-                                      format!("No mac for {}", interface.name)))
-        }
-    }
+struct PingListener {
+    pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
 }
 
-fn create_stack(interface: NetworkInterface) -> io::Result<(NetworkStack, Interface)> {
-    let rips_interface = try!(convert_interface(&interface));
-    let config = datalink::Config::default();
-    let channel = match try!(datalink::channel(&interface, config)) {
-        datalink::Channel::Ethernet(tx, rx) => EthernetChannel(tx, rx),
-        _ => return Err(io::Error::new(io::ErrorKind::Other,
-                                  format!("Invalid channel returned"))),
-    };
-    let mut stack = NetworkStack::new();
-    stack.add_channel(rips_interface.clone(), channel).unwrap();
-    Ok((stack, rips_interface))
+impl icmp::IcmpListener for PingListener {
+    fn recv(&mut self, time: SystemTime, packet: &Ipv4Packet) {
+        self.tx.send((time, packet.packet().to_vec())).unwrap();
+    }
 }
 
 fn print_error(error: &str, mut app: App) -> ! {
