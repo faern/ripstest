@@ -155,8 +155,8 @@ fn main() {
 
     if let Some(cmd_matches) = matches.subcommand_matches("eth") {
         cmd_eth(cmd_matches, app)
-    // } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
-    //     cmd_arp(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
+        cmd_arp(cmd_matches, app)
     // } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
     //     cmd_ipv4(cmd_matches, app)
     // } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
@@ -188,26 +188,27 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
              payload_len);
 
     let mut stack = try!(rips::default_stack());
-    let interface = stack.interface_from_name(&iface.name).unwrap().clone();
-    let stack_interface = stack.interface(&interface).unwrap();
-    let mut ethernet_tx = stack_interface.ethernet_tx(dmac);
+    let interface = stack.interface_from_name(&iface.name).unwrap();
+    let mut ethernet_tx = interface.ethernet_tx(dmac);
     let builder = TestEthernetProtocol::new(EtherType::new(0x1337), payload);
     ethernet_tx.send(pkgs, std::cmp::max(1, payload_len), builder).map_err(|e| StackError::from(e))
 }
 
-// fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
-//     let iface = get_iface(cmd_matches, app.clone());
-//     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
-//     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
-//     println!("Sending Arp request for {}", dest_ip);
-//
-//     let stack = try!(rips::default_stack());
-//     let interface = stack.interface_from_name(&iface.name).unwrap();
-//     let mut arp_tx = stack.arp_tx(&interface).unwrap();
-//     let mac = try!(arp_tx.get(source_ip, dest_ip));
-//     println!("{} has MAC {}", dest_ip, mac);
-//     Ok(())
-// }
+fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
+    println!("Sending Arp request for {}", dest_ip);
+
+    let mut stack = try!(rips::default_stack());
+    let interface = stack.interface_from_name(&iface.name).unwrap();
+    let arp_table_rx = interface.arp_table().get(dest_ip).err().unwrap();
+    let mut arp_tx = interface.arp_tx();
+    try!(arp_tx.send(source_ip, dest_ip));
+    let mac = arp_table_rx.recv().unwrap();
+    println!("{} has MAC {}", dest_ip, mac);
+    Ok(())
+}
 
 // fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 //     let iface = get_iface(cmd_matches, app.clone());
