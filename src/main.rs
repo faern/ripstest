@@ -9,8 +9,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
-use std::sync::{mpsc, Arc, Mutex};
-use std::collections::HashMap;
+use std::sync::mpsc;
 
 use clap::{Arg, App, SubCommand, ArgMatches};
 
@@ -24,8 +23,8 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
-use rips::{Interface, Tx, TxResult, TxError, StackResult, StackError, NetworkStack, EthernetChannel};
-use rips::ethernet::{EthernetTx, EthernetRx, EthernetListener, BasicEthernetProtocol};
+use rips::{StackResult, StackError};
+use rips::ethernet::BasicEthernetProtocol;
 use rips::ipv4::BasicIpv4Protocol;
 use rips::icmp;
 
