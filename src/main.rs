@@ -25,7 +25,8 @@ use pnet::packet::Packet;
 use ipnetwork::Ipv4Network;
 
 use rips::{Interface, Tx, TxResult, TxError, StackResult, StackError, NetworkStack, EthernetChannel};
-use rips::ethernet::{EthernetTx, EthernetRx, EthernetListener, EthernetProtocol};
+use rips::ethernet::{EthernetTx, EthernetRx, EthernetListener, BasicEthernetProtocol};
+use rips::ipv4::BasicIpv4Protocol;
 use rips::arp::ArpTable;
 use rips::icmp;
 
@@ -157,8 +158,8 @@ fn main() {
         cmd_eth(cmd_matches, app)
     } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
         cmd_arp(cmd_matches, app)
-    // } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
-    //     cmd_ipv4(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
+        cmd_ipv4(cmd_matches, app)
     // } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
     //     cmd_ping(cmd_matches, app)
     // } else if let Some(cmd_matches) = matches.subcommand_matches("udp") {
@@ -190,7 +191,7 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let mut stack = try!(rips::default_stack());
     let interface = stack.interface_from_name(&iface.name).unwrap();
     let mut ethernet_tx = interface.ethernet_tx(dmac);
-    let builder = TestEthernetProtocol::new(EtherType::new(0x1337), payload);
+    let builder = BasicEthernetProtocol::new(EtherType::new(0x1337), payload);
     ethernet_tx.send(pkgs, std::cmp::max(1, payload_len), builder).map_err(|e| StackError::from(e))
 }
 
@@ -210,45 +211,44 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     Ok(())
 }
 
-// fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
-//     let iface = get_iface(cmd_matches, app.clone());
-//     let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
-//     let netmask = {
-//         let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
-//         if mask < 1 || mask >= 32 {
-//             print_error("netmask must be in interval 1 - 31", app.clone());
-//         }
-//         mask as u8
-//     };
-//     let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
-//         .unwrap_or(default_gw(source_ip, netmask));
-//     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
-//     let payload = match get_payload(cmd_matches.value_of("payload")) {
-//         Ok(payload) => payload,
-//         Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
-//     };
-//
-//     println!("Sending IPv4 packet from:");
-//     println!("\tIP: {}/{}", source_ip, netmask);
-//     println!("\tgw: {}", gateway);
-//     println!("To {}", dest_ip);
-//     println!("With {} bytes payload", payload.len());
-//
-//     let mut stack = try!(rips::default_stack());
-//     let interface = stack.interface_from_name(&iface.name).unwrap().clone();
-//
-//     let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
-//     try!(stack.add_ipv4(&interface, ipv4_conf));
-//     {
-//         let routing_table = stack.routing_table();
-//         let default = Ipv4Network::from_cidr("0.0.0.0/0").unwrap();
-//         routing_table.add_route(default, Some(gateway), interface);
-//     }
-//     let mut ipv4_tx = try!(stack.ipv4_tx(dest_ip));
-//     ipv4_tx.send(payload.len() as u16, IpNextHeaderProtocols::Igmp, |pload| {
-//         pload[..payload.len()].copy_from_slice(&payload);
-//     }).map_err(|e| StackError::from(e))
-// }
+fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
+    let iface = get_iface(cmd_matches, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let netmask = {
+        let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
+        if mask < 1 || mask >= 32 {
+            print_error("netmask must be in interval 1 - 31", app.clone());
+        }
+        mask as u8
+    };
+    let gateway = get_ipv4(cmd_matches.value_of("gateway"), app.clone())
+        .unwrap_or(default_gw(source_ip, netmask));
+    let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap_or(gateway);
+    let payload = match get_payload(cmd_matches.value_of("payload")) {
+        Ok(payload) => payload,
+        Err(e) => print_error(&format!("Payload error: {}", e)[..], app.clone()),
+    };
+
+    println!("Sending IPv4 packet from:");
+    println!("\tIP: {}/{}", source_ip, netmask);
+    println!("\tgw: {}", gateway);
+    println!("To {}", dest_ip);
+    println!("With {} bytes payload", payload.len());
+
+    let mut stack = try!(rips::default_stack());
+
+    let interface = stack.interface_from_name(&iface.name).unwrap().interface();
+    let ipv4_conf = Ipv4Network::new(source_ip, netmask).unwrap();
+    try!(stack.add_ipv4(&interface, ipv4_conf));
+    {
+        let routing_table = stack.routing_table();
+        let default = Ipv4Network::from_cidr("0.0.0.0/0").unwrap();
+        routing_table.add_route(default, Some(gateway), interface);
+    }
+    let mut ipv4_tx = try!(stack.ipv4_tx(dest_ip));
+    let builder = BasicIpv4Protocol::new(IpNextHeaderProtocols::Igmp, payload);
+    ipv4_tx.send(builder).map_err(|e| StackError::from(e))
+}
 
 // fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> io::Result<()> {
 //     let iface = get_iface(cmd_matches, app.clone());
@@ -350,35 +350,6 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 //         pkg.set_payload(&payload[..]);
 //     }).map_err(|e| StackError::from(e))
 // }
-
-pub struct TestEthernetProtocol {
-    ether_type: EtherType,
-    offset: usize,
-    payload: Vec<u8>,
-}
-
-impl TestEthernetProtocol {
-    pub fn new(ether_type: EtherType, payload: Vec<u8>) -> Self {
-        TestEthernetProtocol {
-            ether_type: ether_type,
-            offset: 0,
-            payload: payload,
-        }
-    }
-}
-
-impl EthernetProtocol for TestEthernetProtocol {
-    fn ether_type(&self) -> EtherType {
-        self.ether_type
-    }
-
-    fn build(&mut self, buffer: &mut [u8]) {
-        let start = self.offset;
-        let end = start + buffer.len();
-        self.offset = end;
-        buffer.copy_from_slice(&self.payload[start..end]);
-    }
-}
 
 struct PingListener {
     pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
