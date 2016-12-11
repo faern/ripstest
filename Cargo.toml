@@ -6,12 +6,12 @@ authors = ["Linus Färnstrand <faern@faern.net>"]
 [dependencies]
 clap = "2.5"
 #pnet = "0.13.0"
-ipnetwork = "0.9.0"
+ipnetwork = "0.10.0"
 
 [dependencies.pnet]
-#git = "https://github.com/faern/libpnet"
+git = "https://github.com/faern/libpnet"
 #branch = "mockpnet"
-path = "../libpnet"
+#path = "../libpnet"
 
 [dependencies.rips]
 #git = "https://github.com/faern/librips"
