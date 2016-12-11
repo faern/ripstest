@@ -29,6 +29,11 @@ use rips::ipv4::{BasicIpv4Payload, Ipv4Tx};
 use rips::udp::UdpSocket;
 use rips::icmp;
 
+static APP_NAME: &'static str = "RIPS testsuite";
+static APP_VERSION: &'static str = "0.1.0";
+static APP_AUTHOR: &'static str = "Linus Färnstrand <faern@faern.net>";
+static APP_ABOUT: &'static str = "Test out the RIPS TCP/IP stack in the real world.";
+
 macro_rules! eprintln {
     ($($arg:tt)*) => (
         use std::io::Write;
@@ -40,133 +45,23 @@ macro_rules! eprintln {
 }
 
 fn main() {
-    let iface_arg = Arg::with_name("iface")
-        .short("i")
-        .long("iface")
-        .help("Ethernet interface to use")
-        .takes_value(true);
-    let smac_arg = Arg::with_name("smac")
-        .long("smac")
-        .help("Source MAC address. Defaults to MAC on <iface>")
-        .takes_value(true);
-    let dmac_arg = Arg::with_name("dmac")
-        .long("dmac")
-        .help("Destination MAC address")
-        .takes_value(true);
-    let source_ip_arg = Arg::with_name("source_ip")
-        .short("s")
-        .long("source_ip")
-        .help("Local IPv4 Address. Defaults to the first IPv4 address on the given interface.")
-        .takes_value(true);
-    let src_port_arg = Arg::with_name("sport")
-        .long("sport")
-        .help("Source port.")
-        .default_value("0");
-    let dst_port_arg = Arg::with_name("dport")
-        .long("dport")
-        .help("Destination port.")
-        .default_value("9999");
-    let netmask_arg = Arg::with_name("netmask")
-        .long("mask")
-        .help("Local netmask.")
-        .default_value("24");
-    let gateway_arg = Arg::with_name("gateway")
-        .long("gw")
-        .help("Gateway IPv4. Defaults to the first IP in the network denoted by source_ip and \
-               mask.")
-        .takes_value(true);
-    let payload_arg = Arg::with_name("payload")
-        .long("payload")
-        .help("A file containing the payload. Without this a packet without a payload will be \
-               sent.")
-        .takes_value(true);
-
-    let app = App::new("RIPS testsuite")
-        .version("1.0")
-        .author("Linus Färnstrand <faern@faern.net>")
-        .about("Test out the RIPS TCP/IP stack in the real world.")
-        .arg(Arg::with_name("v")
-            .short("v")
-            .multiple(true)
-            .help("Sets the level of verbosity"))
-        .subcommand(SubCommand::with_name("eth")
-            .version("1.0")
-            .about("Sends raw ethernet frames to a given MAC address.")
-            .arg(iface_arg.clone().required(true))
-            .arg(smac_arg.clone())
-            .arg(dmac_arg)
-            .arg(Arg::with_name("pkgs")
-                .short("n")
-                .long("pkgs")
-                .help("Amount of packets to send")
-                .default_value("1")
-                .takes_value(true))
-            .arg(payload_arg.clone()))
-        .subcommand(SubCommand::with_name("arp")
-            .version("1.0")
-            .about("Send an Arp query to the network and wait for the response.")
-            .arg(iface_arg.clone().required(true))
-            .arg(Arg::with_name("ip")
-                .long("ip")
-                .help("IPv4 address to query for")
-                .takes_value(true)
-                .required(true))
-            .arg(source_ip_arg.clone()))
-        .subcommand(SubCommand::with_name("ipv4")
-            .version("1.0")
-            .about("Send an IPv4 packet with a given payload to the network.")
-            .arg(iface_arg.clone().required(true))
-            .arg(source_ip_arg.clone())
-            .arg(netmask_arg.clone())
-            .arg(gateway_arg.clone())
-            .arg(Arg::with_name("ip")
-                .long("ip")
-                .help("Destination IP. Defaults to the gateway IP.")
-                .takes_value(true))
-            .arg(payload_arg.clone()))
-        .subcommand(SubCommand::with_name("ping")
-            .version("1.0")
-            .about("Send an echo request (ping) packet with a given payload to the network.")
-            .arg(iface_arg.clone().required(true))
-            .arg(source_ip_arg.clone())
-            .arg(netmask_arg.clone())
-            .arg(gateway_arg.clone())
-            .arg(Arg::with_name("ip")
-                .long("ip")
-                .help("Destination IP. Defaults to the gateway IP.")
-                .takes_value(true))
-            .arg(payload_arg.clone()))
-        .subcommand(SubCommand::with_name("udp")
-            .version("1.0")
-            .about("Send UDP packets with a given payload")
-            .arg(iface_arg.clone().required(true))
-            .arg(source_ip_arg.clone())
-            .arg(netmask_arg.clone())
-            .arg(gateway_arg.clone())
-            .arg(src_port_arg.clone())
-            .arg(dst_port_arg.clone())
-            .arg(Arg::with_name("ip")
-                .long("ip")
-                .help("Destination IP. Defaults to the gateway IP.")
-                .takes_value(true))
-            .arg(payload_arg.clone()));
-
+    let app = create_app();
     let matches = app.clone().get_matches();
 
-    if let Some(cmd_matches) = matches.subcommand_matches("eth") {
-            cmd_eth(cmd_matches, app)
-        } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
-            cmd_arp(cmd_matches, app)
-        } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
-            cmd_ipv4(cmd_matches, app)
-        } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
-            cmd_ping(cmd_matches, app)
-        } else if let Some(cmd_matches) = matches.subcommand_matches("udp") {
-            cmd_udp(cmd_matches, app)
-        } else {
-            Ok(())
-        }
-        .expect("Command failed");
+    let result = if let Some(cmd_matches) = matches.subcommand_matches("eth") {
+        cmd_eth(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("arp") {
+        cmd_arp(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ipv4") {
+        cmd_ipv4(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("ping") {
+        cmd_ping(cmd_matches, app)
+    } else if let Some(cmd_matches) = matches.subcommand_matches("udp") {
+        cmd_udp(cmd_matches, app)
+    } else {
+        Ok(())
+    };
+    result.expect("Command failed");
 }
 
 fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
@@ -501,4 +396,118 @@ fn dur_to_ms(duration: Duration) -> f64 {
     let secs = duration.as_secs() as f64;
     let ns = duration.subsec_nanos() as f64;
     (secs * 1000.0) + (ns / 1_000_000.0)
+}
+
+
+fn create_app() -> App<'static, 'static> {
+    let iface_arg = Arg::with_name("iface")
+        .short("i")
+        .long("iface")
+        .help("Ethernet interface to use")
+        .takes_value(true);
+    let smac_arg = Arg::with_name("smac")
+        .long("smac")
+        .help("Source MAC address. Defaults to MAC on <iface>")
+        .takes_value(true);
+    let dmac_arg = Arg::with_name("dmac")
+        .long("dmac")
+        .help("Destination MAC address")
+        .takes_value(true);
+    let source_ip_arg = Arg::with_name("source_ip")
+        .short("s")
+        .long("source_ip")
+        .help("Local IPv4 Address. Defaults to the first IPv4 address on the given interface.")
+        .takes_value(true);
+    let src_port_arg = Arg::with_name("sport")
+        .long("sport")
+        .help("Source port.")
+        .default_value("0");
+    let dst_port_arg = Arg::with_name("dport")
+        .long("dport")
+        .help("Destination port.")
+        .default_value("9999");
+    let netmask_arg = Arg::with_name("netmask")
+        .long("mask")
+        .help("Local netmask.")
+        .default_value("24");
+    let gateway_arg = Arg::with_name("gateway")
+        .long("gw")
+        .help("Gateway IPv4. Defaults to the first IP in the network denoted by source_ip and \
+               mask.")
+        .takes_value(true);
+    let payload_arg = Arg::with_name("payload")
+        .long("payload")
+        .help("A file containing the payload. Without this a packet without a payload will be \
+               sent.")
+        .takes_value(true);
+
+    App::new(APP_NAME)
+        .version(APP_VERSION)
+        .author(APP_AUTHOR)
+        .about(APP_ABOUT)
+        .arg(Arg::with_name("v")
+            .short("v")
+            .multiple(true)
+            .help("Sets the level of verbosity"))
+        .subcommand(SubCommand::with_name("eth")
+            .version("1.0")
+            .about("Sends raw ethernet frames to a given MAC address.")
+            .arg(iface_arg.clone().required(true))
+            .arg(smac_arg.clone())
+            .arg(dmac_arg)
+            .arg(Arg::with_name("pkgs")
+                .short("n")
+                .long("pkgs")
+                .help("Amount of packets to send")
+                .default_value("1")
+                .takes_value(true))
+            .arg(payload_arg.clone()))
+        .subcommand(SubCommand::with_name("arp")
+            .version("1.0")
+            .about("Send an Arp query to the network and wait for the response.")
+            .arg(iface_arg.clone().required(true))
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("IPv4 address to query for")
+                .takes_value(true)
+                .required(true))
+            .arg(source_ip_arg.clone()))
+        .subcommand(SubCommand::with_name("ipv4")
+            .version("1.0")
+            .about("Send an IPv4 packet with a given payload to the network.")
+            .arg(iface_arg.clone().required(true))
+            .arg(source_ip_arg.clone())
+            .arg(netmask_arg.clone())
+            .arg(gateway_arg.clone())
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("Destination IP. Defaults to the gateway IP.")
+                .takes_value(true))
+            .arg(payload_arg.clone()))
+        .subcommand(SubCommand::with_name("ping")
+            .version("1.0")
+            .about("Send an echo request (ping) packet with a given payload to the network.")
+            .arg(iface_arg.clone().required(true))
+            .arg(source_ip_arg.clone())
+            .arg(netmask_arg.clone())
+            .arg(gateway_arg.clone())
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("Destination IP. Defaults to the gateway IP.")
+                .takes_value(true))
+            .arg(payload_arg.clone()))
+        .subcommand(SubCommand::with_name("udp")
+            .version("1.0")
+            .about("Send UDP packets with a given payload")
+            .arg(iface_arg.clone().required(true))
+            .arg(source_ip_arg.clone())
+            .arg(netmask_arg.clone())
+            .arg(gateway_arg.clone())
+            .arg(src_port_arg.clone())
+            .arg(dst_port_arg.clone())
+            .arg(Arg::with_name("ip")
+                .long("ip")
+                .help("Destination IP. Defaults to the gateway IP.")
+                .takes_value(true))
+            .arg(payload_arg.clone()))
 }
