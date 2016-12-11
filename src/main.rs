@@ -8,7 +8,7 @@ use std::net::{Ipv4Addr, IpAddr, SocketAddrV4};
 use std::fs::File;
 use std::io::{self, Read};
 use std::str::FromStr;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use std::sync::{Arc, Mutex, mpsc};
 
 use clap::{Arg, App, SubCommand, ArgMatches};
@@ -28,6 +28,8 @@ use rips::ethernet::{BasicEthernetPayload, EthernetTx};
 use rips::ipv4::{BasicIpv4Payload, Ipv4Tx};
 use rips::udp::UdpSocket;
 use rips::icmp;
+
+mod util;
 
 static APP_NAME: &'static str = "RIPS testsuite";
 static APP_VERSION: &'static str = "0.1.0";
@@ -92,7 +94,7 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
 fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
-    let source_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let source_ip = get_source_ipv4(cmd_matches.value_of("sip"), &iface, app.clone());
     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
     println!("Sending Arp request for {}", dest_ip);
 
@@ -108,7 +110,7 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
 fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
-    let src_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let src_ip = get_source_ipv4(cmd_matches.value_of("sip"), &iface, app.clone());
     let netmask = {
         let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
         if mask < 1 || mask >= 32 {
@@ -147,7 +149,7 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
 fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
-    let src_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let src_ip = get_source_ipv4(cmd_matches.value_of("sip"), &iface, app.clone());
     let netmask = {
         let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
         if mask < 1 || mask >= 32 {
@@ -211,14 +213,14 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let ip_pkg = Ipv4Packet::new(&pkg[..]).unwrap();
     println!("Ping reply from {} in {:?}ms -> {:?}ms",
              ip_pkg.get_source(),
-             dur_to_ms(elapsed1),
-             dur_to_ms(elapsed2));
+             util::duration_to_ms(elapsed1),
+             util::duration_to_ms(elapsed2));
     result
 }
 
 fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
-    let src_ip = get_source_ipv4(cmd_matches.value_of("source_ip"), &iface, app.clone());
+    let src_ip = get_source_ipv4(cmd_matches.value_of("sip"), &iface, app.clone());
     let netmask = {
         let mask = get_int(cmd_matches.value_of("netmask"), app.clone());
         if mask < 1 || mask >= 32 {
@@ -392,12 +394,6 @@ fn default_gw(ip: Ipv4Addr, prefix: u8) -> Ipv4Addr {
     Ipv4Addr::from(net + 1)
 }
 
-fn dur_to_ms(duration: Duration) -> f64 {
-    let secs = duration.as_secs() as f64;
-    let ns = duration.subsec_nanos() as f64;
-    (secs * 1000.0) + (ns / 1_000_000.0)
-}
-
 
 fn create_app() -> App<'static, 'static> {
     let iface_arg = Arg::with_name("iface")
@@ -413,10 +409,10 @@ fn create_app() -> App<'static, 'static> {
         .long("dmac")
         .help("Destination MAC address")
         .takes_value(true);
-    let source_ip_arg = Arg::with_name("source_ip")
+    let source_ip_arg = Arg::with_name("sip")
         .short("s")
-        .long("source_ip")
-        .help("Local IPv4 Address. Defaults to the first IPv4 address on the given interface.")
+        .long("sip")
+        .help("Source IPv4 Address. Defaults to the first IPv4 address on the given interface.")
         .takes_value(true);
     let src_port_arg = Arg::with_name("sport")
         .long("sport")
