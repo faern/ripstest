@@ -88,8 +88,11 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let mut stack = try!(rips::default_stack());
     let interface = stack.interface_from_name(&iface.name).unwrap();
     let mut ethernet_tx = interface.ethernet_tx(dmac);
-    let builder = BasicEthernetPayload::new(EtherType::new(0x1337), &payload);
-    ethernet_tx.send(pkgs, std::cmp::max(1, payload_len), builder).map_err(|e| StackError::from(e))
+    for _ in 0..pkgs {
+        let builder = BasicEthernetPayload::new(EtherType::new(0x1337), &payload);
+        ethernet_tx.send(1, payload_len, builder).map_err(|e| StackError::from(e))?;
+    }
+    Ok(())
 }
 
 fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
@@ -312,7 +315,7 @@ fn get_smac(mac: Option<&str>, iface: &NetworkInterface, app: App) -> MacAddr {
 }
 
 fn get_dmac(mac: Option<&str>, app: App) -> MacAddr {
-    get_mac(mac, app.clone()).unwrap_or(MacAddr::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff))
+    get_mac(mac, app.clone()).unwrap()
 }
 
 fn get_mac(mac: Option<&str>, app: App) -> Option<MacAddr> {
@@ -408,7 +411,7 @@ fn create_app() -> App<'static, 'static> {
     let dmac_arg = Arg::with_name("dmac")
         .long("dmac")
         .help("Destination MAC address")
-        .takes_value(true);
+        .default_value("FF:FF:FF:FF:FF:FF");
     let source_ip_arg = Arg::with_name("sip")
         .short("s")
         .long("sip")
