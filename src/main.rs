@@ -1,4 +1,5 @@
 extern crate clap;
+#[macro_use(tx_send)]
 extern crate rips;
 extern crate pnet;
 extern crate ipnetwork;
@@ -23,9 +24,9 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
-use rips::{StackResult, StackError};
-use rips::ethernet::{BasicEthernetPayload, EthernetTx};
-use rips::arp::ArpRequest;
+use rips::{StackResult, StackError, CustomPayload, Payload, Tx};
+use rips::ethernet::{EthernetTx, EthernetFields};
+use rips::arp::ArpPayload;
 // use rips::ipv4::{BasicIpv4Payload, Ipv4Tx};
 // use rips::udp::UdpSocket;
 // use rips::icmp;
@@ -88,10 +89,9 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let mut stack = rips::default_stack()?;
     let interface = stack.interface_from_name(&iface.name).unwrap();
-    let mut ethernet_tx = interface.ethernet_tx(dmac);
     for _ in 0..pkgs {
-        let builder = BasicEthernetPayload::new(EtherType::new(0x1337), &payload);
-        ethernet_tx.send(1, payload_len, builder).map_err(|e| StackError::from(e))?;
+        let mut builder = CustomPayload::new(EthernetFields(EtherType::new(0x1337)), &payload);
+        tx_send!(|| interface.ethernet_tx(dmac); &mut builder).map_err(|e| StackError::from(e))?;
     }
     Ok(())
 }
@@ -106,9 +106,8 @@ fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let mut stack = rips::default_stack()?;
     let interface = stack.interface_from_name(&iface.name).unwrap();
     let arp_table_rx = interface.arp_table().get(dest_ip).err().unwrap();
-    let mut arp_sender = interface.arp_sender();
-    let mut arp_payload = ArpRequest::new(smac, source_ip, dest_ip);
-    arp_sender.send(arp_payload)?;
+    let mut arp_request = ArpPayload::request(smac, source_ip, dest_ip);
+    tx_send!(|| interface.arp_request_tx(); &mut arp_request)?;
     let mac = arp_table_rx.recv().unwrap();
     println!("{} has MAC {}", dest_ip, mac);
     Ok(())
