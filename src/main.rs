@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate clap;
 #[macro_use(tx_send)]
 extern crate rips;
@@ -33,18 +34,10 @@ use rips::icmp::{IcmpListener, IcmpFields};
 
 mod util;
 
-static APP_NAME: &'static str = "RIPS testsuite";
-static APP_VERSION: &'static str = "0.1.0";
-static APP_AUTHOR: &'static str = "Linus Färnstrand <faern@faern.net>";
-static APP_ABOUT: &'static str = "Test out the RIPS TCP/IP stack in the real world.";
-
 macro_rules! eprintln {
     ($($arg:tt)*) => (
         use std::io::Write;
-        match writeln!(&mut ::std::io::stderr(), $($arg)* ) {
-            Ok(_) => {},
-            Err(x) => panic!("Unable to write to stderr: {}", x),
-        }
+        let _ = writeln!(&mut ::std::io::stderr(), $($arg)* );
     )
 }
 
@@ -425,10 +418,10 @@ fn create_app() -> App<'static, 'static> {
                sent.")
         .takes_value(true);
 
-    App::new(APP_NAME)
-        .version(APP_VERSION)
-        .author(APP_AUTHOR)
-        .about(APP_ABOUT)
+    App::new(crate_name!())
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about(crate_description!())
         .arg(Arg::with_name("v")
             .short("v")
             .multiple(true)
