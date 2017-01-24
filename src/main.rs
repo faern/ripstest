@@ -24,10 +24,10 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
-use rips::{NetworkStack, Interface, StackResult, StackError, CustomPayload, Payload, Tx};
-use rips::ethernet::{EthernetTx, EthernetFields};
+use rips::{NetworkStack, Interface, StackResult, StackError, CustomPayload, Tx};
+use rips::ethernet::EthernetFields;
 use rips::arp::ArpPayload;
-use rips::ipv4::{Ipv4Tx, Ipv4Fields};
+use rips::ipv4::Ipv4Fields;
 use rips::udp::UdpSocket;
 use rips::icmp::{IcmpListener, IcmpFields};
 
