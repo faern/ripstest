@@ -2,9 +2,10 @@
 name = "ripstest"
 version = "0.1.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
+description = "Test out the RIPS TCP/IP stack in the real world"
 
 [dependencies]
-clap = "2.5"
+clap = "2.20"
 pnet = "0.16.0"
 ipnetwork = "0.10.0"
 
@@ -14,9 +15,9 @@ ipnetwork = "0.10.0"
 #path = "../libpnet"
 
 [dependencies.rips]
-#git = "https://github.com/faern/librips"
-#branch = "develop"
-path = "../rips"
+git = "https://github.com/faern/rips"
+branch = "tx-refactor"
+#path = "../rips"
 
 #[dependencies.ipnetwork]
 #git = "https://github.com/faern/ipnetwork"
