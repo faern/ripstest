@@ -283,11 +283,9 @@ fn get_iface(matches: &ArgMatches, app: App) -> NetworkInterface {
 }
 
 fn get_smac(mac: Option<&str>, iface: &NetworkInterface, app: App) -> MacAddr {
-    get_mac(mac, app.clone()).unwrap_or_else(|| {
-        match iface.mac {
-            Some(m) => m,
-            None => print_error("No MAC attached to selected interface", app),
-        }
+    get_mac(mac, app.clone()).unwrap_or_else(|| match iface.mac {
+        Some(m) => m,
+        None => print_error("No MAC attached to selected interface", app),
     })
 }
 
@@ -325,11 +323,9 @@ fn get_source_ipv4(opt_ip: Option<&str>, iface: &NetworkInterface, app: App) -> 
     match match iface.ips.as_ref() {
         Some(ips) => {
             ips.iter()
-                .filter_map(|&i| {
-                    match i {
-                        IpAddr::V4(ip) => Some(ip),
-                        _ => None,
-                    }
+                .filter_map(|&i| match i {
+                    IpAddr::V4(ip) => Some(ip),
+                    _ => None,
                 })
                 .next()
         }
