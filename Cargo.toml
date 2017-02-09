@@ -16,7 +16,7 @@ ipnetwork = "0.10.0"
 
 [dependencies.rips]
 git = "https://github.com/faern/rips"
-branch = "tx-refactor"
+#branch = "tx-refactor"
 #path = "../rips"
 
 #[dependencies.ipnetwork]
