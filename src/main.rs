@@ -142,7 +142,7 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 }
 
 fn add_default_route(stack: &mut NetworkStack, gw: Ipv4Addr, iface: Interface) {
-    let routing_table = stack.routing_table();
+    let mut routing_table = stack.routing_table();
     let default = Ipv4Network::from_str("0.0.0.0/0").unwrap();
     routing_table.add_route(default, Some(gw), iface);
 }
