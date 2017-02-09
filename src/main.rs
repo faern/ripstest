@@ -1,4 +1,6 @@
+#[macro_use]
 extern crate clap;
+#[macro_use(tx_send)]
 extern crate rips;
 extern crate pnet;
 extern crate ipnetwork;
@@ -23,26 +25,19 @@ use pnet::packet::Packet;
 
 use ipnetwork::Ipv4Network;
 
-use rips::{StackResult, StackError};
-use rips::ethernet::{BasicEthernetPayload, EthernetTx};
-use rips::ipv4::{BasicIpv4Payload, Ipv4Tx};
+use rips::{NetworkStack, Interface, StackResult, StackError, CustomPayload, Tx};
+use rips::ethernet::EthernetFields;
+use rips::arp::ArpPayload;
+use rips::ipv4::Ipv4Fields;
 use rips::udp::UdpSocket;
-use rips::icmp;
+use rips::icmp::{IcmpListener, IcmpFields};
 
 mod util;
-
-static APP_NAME: &'static str = "RIPS testsuite";
-static APP_VERSION: &'static str = "0.1.0";
-static APP_AUTHOR: &'static str = "Linus Färnstrand <faern@faern.net>";
-static APP_ABOUT: &'static str = "Test out the RIPS TCP/IP stack in the real world.";
 
 macro_rules! eprintln {
     ($($arg:tt)*) => (
         use std::io::Write;
-        match writeln!(&mut ::std::io::stderr(), $($arg)* ) {
-            Ok(_) => {},
-            Err(x) => panic!("Unable to write to stderr: {}", x),
-        }
+        let _ = writeln!(&mut ::std::io::stderr(), $($arg)* );
     )
 }
 
@@ -85,27 +80,27 @@ fn cmd_eth(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
              dmac,
              payload_len);
 
-    let mut stack = try!(rips::default_stack());
+    let mut stack = rips::default_stack()?;
     let interface = stack.interface_from_name(&iface.name).unwrap();
-    let mut ethernet_tx = interface.ethernet_tx(dmac);
     for _ in 0..pkgs {
-        let builder = BasicEthernetPayload::new(EtherType::new(0x1337), &payload);
-        ethernet_tx.send(1, payload_len, builder).map_err(|e| StackError::from(e))?;
+        let mut builder = CustomPayload::new(EthernetFields(EtherType::new(0x1337)), &payload);
+        tx_send!(|| interface.ethernet_tx(dmac); &mut builder).map_err(|e| StackError::from(e))?;
     }
     Ok(())
 }
 
 fn cmd_arp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let iface = get_iface(cmd_matches, app.clone());
+    let smac = get_smac(cmd_matches.value_of("smac"), &iface, app.clone());
     let source_ip = get_source_ipv4(cmd_matches.value_of("sip"), &iface, app.clone());
     let dest_ip = get_ipv4(cmd_matches.value_of("ip"), app.clone()).unwrap();
     println!("Sending Arp request for {}", dest_ip);
 
-    let mut stack = try!(rips::default_stack());
+    let mut stack = rips::default_stack()?;
     let interface = stack.interface_from_name(&iface.name).unwrap();
     let arp_table_rx = interface.arp_table().get(dest_ip).err().unwrap();
-    let mut arp_request_tx = interface.arp_request_tx();
-    try!(arp_request_tx.send(source_ip, dest_ip));
+    let mut arp_request = ArpPayload::request(smac, source_ip, dest_ip);
+    tx_send!(|| interface.arp_request_tx(); &mut arp_request)?;
     let mac = arp_table_rx.recv().unwrap();
     println!("{} has MAC {}", dest_ip, mac);
     Ok(())
@@ -140,14 +135,16 @@ fn cmd_ipv4(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
     let interface = stack.interface_from_name(&iface.name).unwrap().interface().clone();
     let ipv4_conf = Ipv4Network::new(src_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
-    {
-        let routing_table = stack.routing_table();
-        let default = Ipv4Network::from_str("0.0.0.0/0").unwrap();
-        routing_table.add_route(default, Some(gateway), interface);
-    }
-    let mut ipv4_tx = try!(stack.ipv4_tx(dest_ip));
-    let builder = BasicIpv4Payload::new(IpNextHeaderProtocols::Igmp, &payload);
-    ipv4_tx.send(builder).map_err(|e| StackError::from(e))
+    add_default_route(&mut stack, gateway, interface);
+    let mut builder = CustomPayload::new(Ipv4Fields(IpNextHeaderProtocols::Igmp), &payload);
+    tx_send!(|| stack.ipv4_tx(dest_ip).unwrap(); &mut builder)?;
+    Ok(())
+}
+
+fn add_default_route(stack: &mut NetworkStack, gw: Ipv4Addr, iface: Interface) {
+    let mut routing_table = stack.routing_table();
+    let default = Ipv4Network::from_str("0.0.0.0/0").unwrap();
+    routing_table.add_route(default, Some(gw), iface);
 }
 
 fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
@@ -177,37 +174,20 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let (tx, rx) = mpsc::channel();
     let ping_listener = PingListener { tx: tx };
-    // let mut icmp_listeners = HashMap::new();
-    // icmp_listeners.insert(icmp_types::EchoReply, vec![ping_listener]);
-
-    // let icmp_listener = icmp::IcmpRx::new(Arc::new(Mutex::new(icmp_listeners)));
-
-    // let mut ipv4_ip_listeners = HashMap::new();
-    // ipv4_ip_listeners.insert(IpNextHeaderProtocols::Icmp, icmp_listener);
-
-    // let arp_factory = ArpFactory::new();
-    // let mut ipv4_listeners = HashMap::new();
-    // ipv4_listeners.insert(src_ip, ipv4_ip_listeners);
-    // let ipv4_ethernet_listener = Ipv4EthernetListener::new(Arc::new(Mutex::new(ipv4_listeners)));
-
-    // let ethernet_listeners = vec![arp_factory.listener(), ipv4_ethernet_listener];
 
     let mut stack = try!(rips::default_stack());
 
     let interface = stack.interface_from_name(&iface.name).unwrap().interface().clone();
     let ipv4_conf = Ipv4Network::new(src_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
-    {
-        let routing_table = stack.routing_table();
-        let default = Ipv4Network::from_str("0.0.0.0/0").unwrap();
-        routing_table.add_route(default, Some(gateway), interface);
-    }
-    let mut icmp_tx = try!(stack.icmp_tx(dest_ip));
+    add_default_route(&mut stack, gateway, interface);
 
     stack.icmp_listen(src_ip, IcmpTypes::EchoReply, ping_listener).unwrap();
 
     let start_time = SystemTime::now();
-    let result = icmp_tx.send_echo(&payload).map_err(|e| StackError::from(e));
+    let fields = IcmpFields::echo_request();
+    let mut builder = CustomPayload::new(fields, &payload);
+    tx_send!(|| stack.icmp_tx(dest_ip).unwrap(); &mut builder)?;
 
     let (time, pkg) = rx.recv().unwrap();
 
@@ -218,7 +198,7 @@ fn cmd_ping(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
              ip_pkg.get_source(),
              util::duration_to_ms(elapsed1),
              util::duration_to_ms(elapsed2));
-    result
+    Ok(())
 }
 
 fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
@@ -246,11 +226,8 @@ fn cmd_udp(cmd_matches: &ArgMatches, app: App) -> StackResult<()> {
 
     let ipv4_conf = Ipv4Network::new(src_ip, netmask).unwrap();
     try!(stack.add_ipv4(&interface, ipv4_conf));
-    {
-        let routing_table = stack.routing_table();
-        let default = Ipv4Network::from_str("0.0.0.0/0").unwrap();
-        routing_table.add_route(default, Some(gateway), interface);
-    }
+    add_default_route(&mut stack, gateway, interface);
+
     let stack = Arc::new(Mutex::new(stack));
     let mut socket = UdpSocket::bind(stack, SocketAddrV4::new(src_ip, src_port)).unwrap();
     let local_addr = socket.local_addr().unwrap();
@@ -273,7 +250,7 @@ struct PingListener {
     pub tx: mpsc::Sender<(SystemTime, Vec<u8>)>,
 }
 
-impl icmp::IcmpListener for PingListener {
+impl IcmpListener for PingListener {
     fn recv(&mut self, time: SystemTime, packet: &Ipv4Packet) {
         self.tx.send((time, packet.packet().to_vec())).unwrap();
     }
@@ -306,11 +283,9 @@ fn get_iface(matches: &ArgMatches, app: App) -> NetworkInterface {
 }
 
 fn get_smac(mac: Option<&str>, iface: &NetworkInterface, app: App) -> MacAddr {
-    get_mac(mac, app.clone()).unwrap_or_else(|| {
-        match iface.mac {
-            Some(m) => m,
-            None => print_error("No MAC attached to selected interface", app),
-        }
+    get_mac(mac, app.clone()).unwrap_or_else(|| match iface.mac {
+        Some(m) => m,
+        None => print_error("No MAC attached to selected interface", app),
     })
 }
 
@@ -348,11 +323,9 @@ fn get_source_ipv4(opt_ip: Option<&str>, iface: &NetworkInterface, app: App) -> 
     match match iface.ips.as_ref() {
         Some(ips) => {
             ips.iter()
-                .filter_map(|&i| {
-                    match i {
-                        IpAddr::V4(ip) => Some(ip),
-                        _ => None,
-                    }
+                .filter_map(|&i| match i {
+                    IpAddr::V4(ip) => Some(ip),
+                    _ => None,
                 })
                 .next()
         }
@@ -440,10 +413,10 @@ fn create_app() -> App<'static, 'static> {
                sent.")
         .takes_value(true);
 
-    App::new(APP_NAME)
-        .version(APP_VERSION)
-        .author(APP_AUTHOR)
-        .about(APP_ABOUT)
+    App::new(crate_name!())
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about(crate_description!())
         .arg(Arg::with_name("v")
             .short("v")
             .multiple(true)
