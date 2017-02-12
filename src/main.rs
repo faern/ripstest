@@ -3,7 +3,6 @@ extern crate clap;
 #[macro_use(tx_send)]
 extern crate rips;
 extern crate pnet;
-extern crate ipnetwork;
 
 use std::process;
 use std::net::{Ipv4Addr, IpAddr, SocketAddrV4};
@@ -23,12 +22,10 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::icmp::IcmpTypes;
 use pnet::packet::Packet;
 
-use ipnetwork::Ipv4Network;
-
 use rips::{NetworkStack, Interface, StackResult, StackError, CustomPayload, Tx};
 use rips::ethernet::EthernetFields;
 use rips::arp::ArpPayload;
-use rips::ipv4::Ipv4Fields;
+use rips::ipv4::{Ipv4Fields, Ipv4Network};
 use rips::udp::UdpSocket;
 use rips::icmp::{IcmpListener, IcmpFields};
 

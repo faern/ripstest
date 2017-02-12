@@ -3,7 +3,6 @@ name = "ripstest"
 version = "0.1.0"
 dependencies = [
  "clap 2.20.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "ipnetwork 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rips 0.0.0 (git+https://github.com/faern/rips)",
 ]
@@ -139,7 +138,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "rips"
 version = "0.0.0"
-source = "git+https://github.com/faern/rips#e14c6ba51ab92d50158f3fed12e6d1cd9347f385"
+source = "git+https://github.com/faern/rips#abff3837894a404895c6c2dc11ec45377f6dc811"
 dependencies = [
  "ipnetwork 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
